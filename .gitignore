@@ -1,1 +1,3 @@
 other-repos/
+node_modules/
+dist/

@@ -19,3 +19,24 @@ xero
 npm run cli
 npm run start
 ```
+
+## Authentication (Client Credentials)
+
+Set environment variables:
+
+```bash
+export XERO_CLIENT_ID=your_client_id
+export XERO_CLIENT_SECRET=your_client_secret
+```
+
+Check auth configuration:
+
+```bash
+xero auth status
+```
+
+Request an access token and print summary:
+
+```bash
+xero auth token
+```

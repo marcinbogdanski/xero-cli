@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { resolveAuthStatus } from "./auth";
+import { resolveAuthStatus, resolveAuthTokenSummary } from "./auth";
 
 const program = new Command();
 
@@ -31,6 +31,14 @@ auth
   .action(() => {
     const status = resolveAuthStatus(process.env);
     console.log(JSON.stringify(status, null, 2));
+  });
+
+auth
+  .command("token")
+  .description("Acquire access token using client credentials")
+  .action(async () => {
+    const summary = await resolveAuthTokenSummary(process.env);
+    console.log(JSON.stringify(summary, null, 2));
   });
 
 if (process.argv.length <= 2) {

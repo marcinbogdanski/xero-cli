@@ -40,3 +40,17 @@ Request an access token and print summary:
 ```bash
 xero auth token
 ```
+
+## Tenants
+
+Show tenant commands help:
+
+```bash
+xero tenants
+```
+
+List connected tenants from Xero `/connections`:
+
+```bash
+xero tenants list
+```

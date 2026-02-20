@@ -13,6 +13,13 @@ export interface AuthTokenSummary {
   hasAccessToken: boolean;
 }
 
+export interface ClientCredentialsToken {
+  accessToken: string;
+  tokenType: string | null;
+  expiresIn: number | null;
+  scope: string | string[] | null;
+}
+
 interface TokenResponse {
   access_token?: string;
   token_type?: string;
@@ -99,6 +106,22 @@ async function requestClientCredentialsToken(
   return (await response.json()) as TokenResponse;
 }
 
+export async function acquireClientCredentialsToken(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ClientCredentialsToken> {
+  const token = await requestClientCredentialsToken(env);
+  if (!token.access_token) {
+    throw new Error("Token request succeeded but access_token is missing.");
+  }
+
+  return {
+    accessToken: token.access_token,
+    tokenType: token.token_type ?? null,
+    expiresIn: token.expires_in ?? null,
+    scope: token.scope ?? null,
+  };
+}
+
 export function resolveAuthStatus(
   env: NodeJS.ProcessEnv = process.env,
 ): AuthStatus {
@@ -117,13 +140,13 @@ export function resolveAuthStatus(
 export async function resolveAuthTokenSummary(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<AuthTokenSummary> {
-  const token = await requestClientCredentialsToken(env);
+  const token = await acquireClientCredentialsToken(env);
 
   return {
     mode: "client_credentials",
-    tokenType: token.token_type ?? null,
-    expiresIn: token.expires_in ?? null,
-    scope: token.scope ?? null,
-    hasAccessToken: Boolean(token.access_token),
+    tokenType: token.tokenType,
+    expiresIn: token.expiresIn,
+    scope: token.scope,
+    hasAccessToken: true,
   };
 }

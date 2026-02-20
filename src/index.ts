@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { resolveAuthStatus, resolveAuthTokenSummary } from "./auth";
+import { listTenants } from "./tenants";
 
 const program = new Command();
 
@@ -39,6 +40,20 @@ auth
   .action(async () => {
     const summary = await resolveAuthTokenSummary(process.env);
     console.log(JSON.stringify(summary, null, 2));
+  });
+
+const tenants = program.command("tenants").description("Tenant commands");
+
+tenants.action(() => {
+  tenants.outputHelp();
+});
+
+tenants
+  .command("list")
+  .description("List connected Xero tenants")
+  .action(async () => {
+    const results = await listTenants(process.env);
+    console.log(JSON.stringify(results, null, 2));
   });
 
 if (process.argv.length <= 2) {

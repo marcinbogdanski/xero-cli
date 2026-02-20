@@ -1,3 +1,28 @@
 #!/usr/bin/env node
 
-console.log("hello world");
+import { Command } from "commander";
+
+const program = new Command();
+
+program
+  .name("xero")
+  .description("Thin CLI wrapper around xero-node")
+  .version("0.1.0");
+
+program
+  .command("about")
+  .description("Show project summary")
+  .action(() => {
+    console.log("xero: thin CLI wrapper around xero-node");
+  });
+
+if (process.argv.length <= 2) {
+  program.outputHelp();
+  process.exit(0);
+}
+
+program.parseAsync(process.argv).catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  process.exit(1);
+});

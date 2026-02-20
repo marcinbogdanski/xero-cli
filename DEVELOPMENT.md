@@ -26,6 +26,22 @@ Use a thin layered architecture:
 
 Do not copy MCP’s per-endpoint handler model; keep generic invocation as default.
 
+## Future Proxy Plan (Important)
+We may later run the CLI in untrusted environments and move secret-bearing auth to a trusted proxy/token broker.
+
+To keep this migration easy, preserve this boundary from day one:
+1. `cli` layer: argument parsing + output formatting only.
+2. `backend` interface: one internal execution contract (`execute(operation, params, context)`).
+3. `backend` implementation A (now): direct `xero-node` calls.
+4. `backend` implementation B (later): proxy HTTP calls with the same contract.
+
+Rules:
+- CLI code should never call `xero-node` directly outside backend implementation A.
+- Auth and transport details must stay behind the backend interface.
+- Operation names, parameter schema, and output envelope should remain stable across A/B implementations.
+
+Expected result: swapping direct SDK transport for proxy transport should be mostly wiring/config, not a full CLI rewrite.
+
 ## Findings From Prior Attempt (`xero-cli-yolo-branch`)
 What is good:
 - Strong generic `invoke` flow
@@ -75,4 +91,3 @@ When a new session starts:
 2. Confirm `README.md` still matches project direction.
 3. Start next uncompleted step from the implementation plan above.
 4. Keep changes incremental with tests per step.
-

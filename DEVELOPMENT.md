@@ -60,16 +60,67 @@ What should be fixed before treating as production baseline:
 - OAuth token lifecycle and refresh semantics.
 - Custom integration commercial changes effective 2026-03-02 (planning impact for heavy agent usage).
 
-## Recommended Implementation Plan (Small Steps)
-1. Scaffold project baseline (`typescript`, `commander`, `vitest`, strict lint).
-2. Add discovery commands: `apis list`, `methods list <api>`.
-3. Implement auth core: `auth mode`, `auth token` (bearer + client_credentials).
-4. Implement first live read call: `invoke accounting getOrganisations`.
-5. Add tenant resolution order (`--tenant-id` -> env -> config -> `/connections`).
-6. Add payload engine (`--args`, `--args-file`, headers, file tokens).
-7. Add binary response handling (`--output`).
-8. Add config store + tenant CRUD commands.
-9. Harden retries, idempotency-key support, and error taxonomy.
+## Next Implementation Plan (Current Focus)
+Goal: keep `invoke` generic, but make argument handling deterministic and safer via generated metadata.
+
+### Phase 1: Manifest Generator
+Create a dev script that generates a manifest from `xero-node` generated signatures.
+
+Manifest should include (per API method parameter):
+- API name + method name
+- parameter order (for positional SDK call)
+- parameter name
+- declared TypeScript type (raw)
+- flags: required/optional/defaulted
+- inferred parse category (initial): `scalar`, `json`, `binary`, `unknown`
+
+Acceptance:
+- Deterministic output file (committable)
+- Regenerating manifest after SDK update produces a clean diff
+- No runtime `fn.toString()` dependency for param names/types
+
+### Phase 2: Generic Param Parser (Progressive)
+Build a parser that consumes user inputs and maps to manifest param definitions.
+
+Input style (initial):
+- All SDK method params are passed as dynamic named args after `--`
+- Format: `--<param-name>=<param-value>`
+- Example:
+  - `xero invoke accountingApi createInvoices --tenant-id=... -- --invoices=@invoices.json --summarizeErrors=true`
+
+Param value conventions:
+- Scalar types: literal value (`--page=1`, `--summarizeErrors=true`)
+- JSON/model types: inline JSON or file/stdin reference
+  - inline JSON: `--account='{"code":"200","name":"Sales"}'`
+  - JSON file: `--account=@account.json`
+  - stdin: `--account=@-`
+- Binary/stream types: file reference by default (`--body=@invoice.pdf`)
+- Optional future extension: `base64:` prefix for binary payloads
+
+Rules:
+- Do not guess parse mode from content/path-like strings
+- Parse dynamic params only from argv segment after `--`
+- Reserve global CLI flags before `--` (for example `--tenant-id`, `--output`, `--help`, `--version`)
+- Define escaping for literal leading `@` values when needed (for example `@@value`)
+- Validate mode compatibility against manifest type/category
+- Fail fast on unknown param names or missing required params
+
+### Phase 3: Invoke Integration
+Refactor `invoke` to use manifest + parser output end-to-end.
+
+Flow:
+1. Resolve method signature from manifest
+2. Parse/validate all provided params using parser
+3. Build ordered args array
+4. Inject tenant ID using existing resolution rules
+5. Call SDK method
+6. Return normalized response/error envelope
+
+Acceptance:
+- Existing simple invocations still work
+- Typed JSON payload methods work (`Account`, `Quotes`, etc.)
+- Binary upload methods work via `--<param>=@<file-path>`
+- Validation errors are clear and actionable
 
 ## Proposed Initial Command Surface
 - `xero about`
@@ -77,7 +128,7 @@ What should be fixed before treating as production baseline:
 - `xero methods list <api>`
 - `xero auth mode`
 - `xero auth token`
-- `xero invoke <api> <method> [--args|--args-file] [--tenant-id] [--json]`
+- `xero invoke <api> <method> [--tenant-id] [--output] -- --<param>=<value> ...`
 
 ## Security Baseline
 - Never print access tokens by default.

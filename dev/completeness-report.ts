@@ -27,7 +27,12 @@ interface MethodSignature {
   parameters: MethodParameter[];
 }
 
-type ParamSupportLevel = "unsupported" | "partial" | "supported" | "tenant";
+type ParamSupportLevel =
+  | "unsupported"
+  | "partial"
+  | "supported"
+  | "tenant"
+  | "ignored";
 
 const EXCLUDED_METHODS = new Set(["setApiKey", "setDefaultAuthentication"]);
 
@@ -37,6 +42,7 @@ const ANSI = {
   blue: "\x1b[34m",
   green: "\x1b[32m",
   yellow: "\x1b[33m",
+  gray: "\x1b[90m",
 };
 
 function supportsColor(): boolean {
@@ -77,13 +83,34 @@ function colorizePartialMarker(value: string): string {
   return `${ANSI.yellow}${value}${ANSI.reset}`;
 }
 
+function colorizeNeutralParam(value: string): string {
+  if (!supportsColor()) {
+    return value;
+  }
+  return `${ANSI.gray}${value}${ANSI.reset}`;
+}
+
 function normalizeType(type: string): string {
   return type.trim().toLowerCase();
+}
+
+function normalizeStructuralType(type: string): string {
+  return type.replace(/\s+/g, "").toLowerCase();
 }
 
 function isTenantParamName(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   return normalized === "xerotenantid" || normalized === "xerotentantid";
+}
+
+function isDefaultOptionsHeadersParam(parameter: MethodParameter): boolean {
+  const optionsHeadersType = "{headers: {[name: string]: string}}";
+  return (
+    parameter.name === "options" &&
+    parameter.hasDefaultValue &&
+    normalizeStructuralType(parameter.type) ===
+      normalizeStructuralType(optionsHeadersType)
+  );
 }
 
 function isParamTypeExplicitlySupported(parameter: MethodParameter): boolean {
@@ -114,12 +141,16 @@ function getParamSupportLevel(parameter: MethodParameter): ParamSupportLevel {
     level = "tenant";
   }
 
+  if (isDefaultOptionsHeadersParam(parameter)) {
+    level = "ignored";
+  }
+
   return level;
 }
 
 function isParamSupported(parameter: MethodParameter): boolean {
   const level = getParamSupportLevel(parameter);
-  return level === "supported" || level === "tenant";
+  return level === "supported" || level === "tenant" || level === "ignored";
 }
 
 function isParamInvokable(parameter: MethodParameter): boolean {
@@ -135,20 +166,25 @@ function renderParameter(parameter: MethodParameter): string {
   }
 
   const level = getParamSupportLevel(parameter);
+  let colorized = rendered;
 
   if (level === "tenant") {
-    return colorizeTenantParam(rendered);
+    colorized = colorizeTenantParam(rendered);
   }
 
   if (level === "supported") {
-    return colorizeSupportedParam(rendered);
+    colorized = colorizeSupportedParam(rendered);
   }
 
   if (level === "partial") {
-    return colorizePartialMarker(rendered);
+    colorized = colorizePartialMarker(rendered);
   }
 
-  return rendered;
+  if (level === "ignored") {
+    return colorizeNeutralParam(`${rendered} [ignored]`);
+  }
+
+  return colorized;
 }
 
 function renderMethodCheckbox(parameters: MethodParameter[]): string {

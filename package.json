@@ -1,0 +1,41 @@
+{
+  "name": "xero-cli",
+  "version": "0.1.0",
+  "description": "Thin CLI wrapper around xero-node.",
+  "keywords": [
+    "xero",
+    "cli",
+    "sdk"
+  ],
+  "homepage": "https://github.com/marcinbogdanski/xero-cli#readme",
+  "bugs": {
+    "url": "https://github.com/marcinbogdanski/xero-cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcinbogdanski/xero-cli.git"
+  },
+  "license": "ISC",
+  "author": "Marcin Bogdanski",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "bin": {
+    "xero": "dist/index.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json",
+    "cli": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "xero-node": "^13.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

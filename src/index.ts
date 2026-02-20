@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import { resolveAuthStatus } from "./auth";
 
 const program = new Command();
 
@@ -14,6 +15,22 @@ program
   .description("Show project summary")
   .action(() => {
     console.log("xero: thin CLI wrapper around xero-node");
+  });
+
+const auth = program
+  .command("auth")
+  .description("Authentication commands");
+
+auth.action(() => {
+  auth.outputHelp();
+});
+
+auth
+  .command("status")
+  .description("Show current auth configuration status")
+  .action(() => {
+    const status = resolveAuthStatus(process.env);
+    console.log(JSON.stringify(status, null, 2));
   });
 
 if (process.argv.length <= 2) {

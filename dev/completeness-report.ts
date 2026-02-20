@@ -18,6 +18,8 @@ function isApiClient(value: unknown): value is Record<string, unknown> {
 interface MethodParameter {
   name: string;
   type: string;
+  hasDefaultValue: boolean;
+  isOptional: boolean;
 }
 
 interface MethodSignature {
@@ -25,15 +27,26 @@ interface MethodSignature {
   parameters: MethodParameter[];
 }
 
+type ParamSupportLevel = "unsupported" | "partial" | "supported" | "tenant";
+
 const EXCLUDED_METHODS = new Set(["setApiKey", "setDefaultAuthentication"]);
 
 const ANSI = {
   reset: "\x1b[0m",
   orange: "\x1b[38;5;214m",
+  blue: "\x1b[34m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
 };
 
 function supportsColor(): boolean {
-  return Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined;
+  if (process.env.FORCE_COLOR !== undefined) {
+    return true;
+  }
+  if (process.env.NO_COLOR !== undefined) {
+    return false;
+  }
+  return Boolean(process.stdout.isTTY);
 }
 
 function colorizeMethodName(name: string): string {
@@ -41,6 +54,118 @@ function colorizeMethodName(name: string): string {
     return name;
   }
   return `${ANSI.orange}${name}${ANSI.reset}`;
+}
+
+function colorizeSupportedParam(value: string): string {
+  if (!supportsColor()) {
+    return value;
+  }
+  return `${ANSI.green}${value}${ANSI.reset}`;
+}
+
+function colorizeTenantParam(value: string): string {
+  if (!supportsColor()) {
+    return value;
+  }
+  return `${ANSI.blue}${value}${ANSI.reset}`;
+}
+
+function colorizePartialMarker(value: string): string {
+  if (!supportsColor()) {
+    return value;
+  }
+  return `${ANSI.yellow}${value}${ANSI.reset}`;
+}
+
+function normalizeType(type: string): string {
+  return type.trim().toLowerCase();
+}
+
+function isTenantParamName(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  return normalized === "xerotenantid" || normalized === "xerotentantid";
+}
+
+function isParamTypeExplicitlySupported(parameter: MethodParameter): boolean {
+  const simpleTypes = new Set(["string", "number", "boolean", "bool"]);
+  return simpleTypes.has(normalizeType(parameter.type));
+}
+
+function getParamSupportLevel(parameter: MethodParameter): ParamSupportLevel {
+  // Precedence requested by user:
+  // 1) start unsupported
+  // 2) default/optional -> partial
+  // 3) explicitly supported type -> supported
+  // 4) xeroTenantId:string -> tenant (highest)
+  let level: ParamSupportLevel = "unsupported";
+
+  if (parameter.hasDefaultValue || parameter.isOptional) {
+    level = "partial";
+  }
+
+  if (isParamTypeExplicitlySupported(parameter)) {
+    level = "supported";
+  }
+
+  if (
+    isTenantParamName(parameter.name) &&
+    normalizeType(parameter.type) === "string"
+  ) {
+    level = "tenant";
+  }
+
+  return level;
+}
+
+function isParamSupported(parameter: MethodParameter): boolean {
+  const level = getParamSupportLevel(parameter);
+  return level === "supported" || level === "tenant";
+}
+
+function isParamInvokable(parameter: MethodParameter): boolean {
+  return getParamSupportLevel(parameter) !== "unsupported";
+}
+
+function renderParameter(parameter: MethodParameter): string {
+  let rendered = `${parameter.name}: ${parameter.type}`;
+  if (parameter.hasDefaultValue) {
+    rendered += " [default]";
+  } else if (parameter.isOptional) {
+    rendered += " [optional]";
+  }
+
+  const level = getParamSupportLevel(parameter);
+
+  if (level === "tenant") {
+    return colorizeTenantParam(rendered);
+  }
+
+  if (level === "supported") {
+    return colorizeSupportedParam(rendered);
+  }
+
+  if (level === "partial") {
+    return colorizePartialMarker(rendered);
+  }
+
+  return rendered;
+}
+
+function renderMethodCheckbox(parameters: MethodParameter[]): string {
+  const isFullySupported = parameters.every((parameter) => isParamSupported(parameter));
+  if (isFullySupported) {
+    if (!supportsColor()) {
+      return "[X]";
+    }
+    return `[${ANSI.green}X${ANSI.reset}]`;
+  }
+
+  const isInvokable = parameters.every((parameter) => isParamInvokable(parameter));
+  if (isInvokable) {
+    return colorizePartialMarker("[~]");
+  }
+
+  return "[ ]";
 }
 
 function normalizeKey(value: string): string {
@@ -139,13 +264,17 @@ function splitAtTopLevel(raw: string, delimiter: string): [string, string] {
 }
 
 function parseParameter(raw: string): MethodParameter {
-  const [declaration] = splitAtTopLevel(raw, "=");
+  const [declaration, defaultValue] = splitAtTopLevel(raw, "=");
   const [left, type] = splitAtTopLevel(declaration, ":");
-  const name = left.trim().replace(/\?$/, "");
+  const leftTrimmed = left.trim();
+  const isOptional = leftTrimmed.endsWith("?");
+  const name = leftTrimmed.replace(/\?$/, "");
 
   return {
     name,
     type: type.trim() || "unknown",
+    hasDefaultValue: defaultValue.trim().length > 0,
+    isOptional,
   };
 }
 
@@ -231,13 +360,14 @@ function main(): void {
       const signature = signatureMap.get(`${apiProperty}.${method}`);
       const params = signature?.parameters ?? [];
       const renderedParams = params
-        .map((parameter) => `${parameter.name}: ${parameter.type}`)
+        .map((parameter) => renderParameter(parameter))
         .join("; ");
       const methodLabel = `${apiProperty}.${colorizeMethodName(method)}`;
+      const checkbox = renderMethodCheckbox(params);
       console.log(
         renderedParams.length > 0
-          ? `[ ] ${methodLabel} | ${renderedParams}`
-          : `[ ] ${methodLabel}`,
+          ? `${checkbox} ${methodLabel} | ${renderedParams}`
+          : `${checkbox} ${methodLabel}`,
       );
     }
   }

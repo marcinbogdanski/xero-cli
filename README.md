@@ -27,6 +27,7 @@ Set environment variables:
 ```bash
 export XERO_CLIENT_ID=your_client_id
 export XERO_CLIENT_SECRET=your_client_secret
+export XERO_TENANT_ID_DEFAULT=your_tenant_id
 ```
 
 Check auth configuration:
@@ -43,14 +44,22 @@ xero auth token
 
 ## Tenants
 
-Show tenant commands help:
-
-```bash
-xero tenants
-```
-
 List connected tenants from Xero `/connections`:
 
 ```bash
 xero tenants list
+```
+
+## Invoke
+
+Get organisation details:
+
+```bash
+xero invoke accounting getOrganisations
+```
+
+Override tenant id per command:
+
+```bash
+xero invoke accounting getOrganisations --tenant-id your_tenant_id
 ```

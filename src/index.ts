@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { resolveAuthStatus, resolveAuthTokenSummary } from "./auth";
+import { invokeXeroMethod } from "./invoke";
 import { listTenants } from "./tenants";
 
 const program = new Command();
@@ -42,7 +43,9 @@ auth
     console.log(JSON.stringify(summary, null, 2));
   });
 
-const tenants = program.command("tenants").description("Tenant commands");
+const tenants = program
+  .command("tenants")
+  .description("Tenant commands");
 
 tenants.action(() => {
   tenants.outputHelp();
@@ -55,6 +58,30 @@ tenants
     const results = await listTenants(process.env);
     console.log(JSON.stringify(results, null, 2));
   });
+
+program
+  .command("invoke")
+  .description("Invoke xero-node API method (minimal scaffold)")
+  .argument("<api>", "API alias (for example: accounting)")
+  .argument("<method>", "Method name (for example: getOrganisations)")
+  .option("--tenant-id <id>", "Tenant ID override")
+  .action(
+    async (
+      api: string,
+      method: string,
+      options: { tenantId?: string },
+    ) => {
+      const result = await invokeXeroMethod(
+        {
+          api,
+          method,
+          tenantId: options.tenantId,
+        },
+        process.env,
+      );
+      console.log(JSON.stringify(result, null, 2));
+    },
+  );
 
 if (process.argv.length <= 2) {
   program.outputHelp();

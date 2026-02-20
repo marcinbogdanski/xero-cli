@@ -1,0 +1,28 @@
+{
+  "name": "xero-cli",
+  "version": "0.1.0",
+  "description": "Thin CLI wrapper around xero-node.",
+  "keywords": [
+    "xero",
+    "cli",
+    "sdk"
+  ],
+  "homepage": "https://github.com/marcinbogdanski/xero-cli#readme",
+  "bugs": {
+    "url": "https://github.com/marcinbogdanski/xero-cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcinbogdanski/xero-cli.git"
+  },
+  "license": "ISC",
+  "author": "Marcin Bogdanski",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "bin": {
+    "xero": "dist/index.js"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

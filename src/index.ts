@@ -3,7 +3,11 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
-import { resolveAuthStatus, storeClientCredentials } from "./auth";
+import {
+  acquireClientCredentialsToken,
+  resolveAuthStatus,
+  storeClientCredentials,
+} from "./auth";
 import { invokeXeroMethod } from "./invoke";
 import { listTenants } from "./tenants";
 
@@ -50,6 +54,28 @@ auth
   .action(() => {
     const status = resolveAuthStatus(process.env);
     console.log(JSON.stringify(status, null, 2));
+  });
+
+auth
+  .command("test")
+  .description("Test auth by requesting an access token")
+  .action(async () => {
+    const status = resolveAuthStatus(process.env);
+    const token = await acquireClientCredentialsToken(process.env);
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          mode: token.mode,
+          credentialSource: status.credentialSource,
+          tokenType: token.tokenType,
+          expiresIn: token.expiresIn,
+          scope: token.scope,
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 auth

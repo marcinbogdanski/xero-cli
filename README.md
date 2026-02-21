@@ -69,3 +69,9 @@ List bank transactions (newest first) with paging:
 ```bash
 xero invoke accounting getBankTransactions -- --order='Date DESC' --page=1 --pageSize=5
 ```
+
+List bank transactions modified since a specific UTC timestamp:
+
+```bash
+xero invoke accounting getBankTransactions -- --ifModifiedSince=2021-01-03T22:31:40Z --page=1 --pageSize=10 --order='Date DESC'
+```

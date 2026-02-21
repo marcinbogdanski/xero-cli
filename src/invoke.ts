@@ -46,6 +46,7 @@ interface XeroApiManifest {
 }
 
 type ScalarType = "string" | "number" | "boolean";
+type SimpleType = ScalarType | "date";
 
 const API_MAPPINGS: ApiMapping[] = [
   { alias: "accounting", property: "accountingApi", requiresTenantId: true },
@@ -60,11 +61,28 @@ const API_MAPPINGS: ApiMapping[] = [
   { alias: "finance", property: "financeApi", requiresTenantId: true },
 ];
 
-const SUPPORTED_SCALAR_TYPES = new Set<ScalarType>([
-  "string",
-  "number",
-  "boolean",
-]);
+function normalizeType(type: string): string {
+  return type.trim().toLowerCase();
+}
+
+function resolveSimpleType(declaredType: string): SimpleType | undefined {
+  const normalized = normalizeType(declaredType);
+  if (normalized === "string") {
+    return "string";
+  }
+  if (normalized === "number") {
+    return "number";
+  }
+  if (normalized === "boolean") {
+    return "boolean";
+  }
+  if (normalized === "date") {
+    return "date";
+  }
+  return undefined;
+}
+
+const SUPPORTED_SCALAR_TYPE_LABEL = "string, number, boolean, Date";
 
 const MANIFEST_PATH = path.resolve(__dirname, "../resources/xero-api-manifest.json");
 
@@ -158,7 +176,7 @@ function parseRawNamedParams(rawParams: string[]): Map<string, string> {
   return parsed;
 }
 
-function parseScalarValue(type: ScalarType, rawValue: string, name: string): unknown {
+function parseScalarValue(type: SimpleType, rawValue: string, name: string): unknown {
   if (type === "string") {
     return rawValue;
   }
@@ -187,6 +205,20 @@ function parseScalarValue(type: ScalarType, rawValue: string, name: string): unk
     throw new Error(
       `Parameter "${name}" expects a boolean ("true" or "false") but received "${rawValue}".`,
     );
+  }
+
+  if (type === "date") {
+    if (rawValue.trim().length === 0) {
+      throw new Error(`Parameter "${name}" expects a date but received an empty value.`);
+    }
+
+    const parsed = new Date(rawValue);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(
+        `Parameter "${name}" expects a date but received "${rawValue}". Use ISO format, e.g. 2026-01-01T00:00:00Z.`,
+      );
+    }
+    return parsed;
   }
 
   throw new Error(
@@ -236,14 +268,15 @@ function buildInvokeArgs(
       continue;
     }
 
-    if (!SUPPORTED_SCALAR_TYPES.has(param.declaredType as ScalarType)) {
+    const simpleType = resolveSimpleType(param.declaredType);
+    if (!simpleType) {
       throw new Error(
-        `Parameter "${param.name}" has unsupported type "${param.declaredType}". Supported types: string, number, boolean.`,
+        `Parameter "${param.name}" has unsupported type "${param.declaredType}". Supported types: ${SUPPORTED_SCALAR_TYPE_LABEL}.`,
       );
     }
 
     args[index] = parseScalarValue(
-      param.declaredType as ScalarType,
+      simpleType,
       providedValue,
       param.name,
     );

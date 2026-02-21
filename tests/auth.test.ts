@@ -11,12 +11,14 @@ import {
 } from "../src/auth";
 
 let configRoot: string;
+const TEST_KEYRING_PASSWORD = "test-keyring-password";
 
 function makeEnv(
   overrides: Record<string, string | undefined> = {},
 ): NodeJS.ProcessEnv {
   return {
     XDG_CONFIG_HOME: configRoot,
+    XERO_KEYRING_PASSWORD: TEST_KEYRING_PASSWORD,
     ...overrides,
   };
 }
@@ -234,6 +236,9 @@ describe("storeClientCredentials / resolveClientCredentials", () => {
 
     expect(authPath).toBe(resolveAuthFilePath(makeEnv()));
     expect(fs.existsSync(authPath)).toBe(true);
+    const raw = fs.readFileSync(authPath, "utf8");
+    expect(raw).not.toContain("stored-id");
+    expect(raw).not.toContain("stored-secret");
 
     const resolved = resolveClientCredentials(makeEnv());
     expect(resolved).toEqual({
@@ -271,5 +276,26 @@ describe("storeClientCredentials / resolveClientCredentials", () => {
     ).toThrow(
       "Incomplete client credentials in environment. Set both XERO_CLIENT_ID and XERO_CLIENT_SECRET.",
     );
+  });
+
+  it("throws when keyring password is missing for file credentials", () => {
+    storeClientCredentials("stored-id", "stored-secret", makeEnv());
+
+    expect(() =>
+      resolveClientCredentials({
+        XDG_CONFIG_HOME: configRoot,
+      }),
+    ).toThrow("Missing XERO_KEYRING_PASSWORD.");
+  });
+
+  it("throws when keyring password is wrong for file credentials", () => {
+    storeClientCredentials("stored-id", "stored-secret", makeEnv());
+
+    expect(() =>
+      resolveClientCredentials({
+        XDG_CONFIG_HOME: configRoot,
+        XERO_KEYRING_PASSWORD: "wrong-password",
+      }),
+    ).toThrow(`Failed to decrypt auth file "${resolveAuthFilePath(makeEnv())}".`);
   });
 });

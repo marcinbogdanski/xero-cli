@@ -84,11 +84,13 @@ auth
   .option("--mode <mode>", "Authentication mode", "client_credentials")
   .option("--client-id <id>", "Client ID")
   .option("--client-secret <secret>", "Client secret")
+  .option("--keyring-password <password>", "Keyring password")
   .action(
     async (options: {
       mode: string;
       clientId?: string;
       clientSecret?: string;
+      keyringPassword?: string;
     }) => {
       const mode = options.mode.trim().toLowerCase();
       if (mode !== "client_credentials") {
@@ -103,11 +105,16 @@ auth
       const clientSecret =
         options.clientSecret?.trim() ??
         (await promptRequiredValue("Xero client secret: "));
+      const keyringPassword =
+        options.keyringPassword?.trim() ??
+        process.env.XERO_KEYRING_PASSWORD?.trim() ??
+        (await promptRequiredValue("Keyring password: "));
 
       const authFilePath = storeClientCredentials(
         clientId,
         clientSecret,
         process.env,
+        keyringPassword,
       );
       console.log(
         JSON.stringify(

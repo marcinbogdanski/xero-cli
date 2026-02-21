@@ -82,6 +82,7 @@ During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PAS
 
 ```bash
 xero auth status
+xero auth test
 ```
 
 ### Keyring Backend

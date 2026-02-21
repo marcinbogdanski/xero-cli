@@ -1,5 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  scryptSync,
+} from "node:crypto";
 
 export interface AuthStatus {
   authMode: "client_credentials" | null;
@@ -31,6 +37,22 @@ export interface ClientCredentials {
   source: "env" | "file";
 }
 
+interface StoredAuthState {
+  mode: "client_credentials";
+  clientId: string;
+  clientSecret: string;
+  savedAt: string;
+}
+
+interface EncryptedAuthFile {
+  version: 1;
+  kdf: "scrypt";
+  salt: string;
+  iv: string;
+  tag: string;
+  ciphertext: string;
+}
+
 function trimNonEmpty(input: string | undefined): string | undefined {
   const value = input?.trim();
   return value && value.length > 0 ? value : undefined;
@@ -56,17 +78,51 @@ export function resolveAuthFilePath(
   return path.join(resolveConfigHome(env), "xero-cli", "auth.json");
 }
 
-function readStoredCredentials(
-  env: NodeJS.ProcessEnv = process.env,
-): { clientId: string; clientSecret: string } | null {
-  const filePath = resolveAuthFilePath(env);
-  if (!fs.existsSync(filePath)) {
-    return null;
+function resolveKeyringPassword(
+  env: NodeJS.ProcessEnv,
+  explicitPassword?: string,
+): string {
+  const password =
+    trimNonEmpty(explicitPassword) ?? trimNonEmpty(env.XERO_KEYRING_PASSWORD);
+  if (!password) {
+    throw new Error("Missing XERO_KEYRING_PASSWORD.");
   }
+  return password;
+}
 
+function serializeEncryptedAuthFile(
+  payload: StoredAuthState,
+  keyringPassword: string,
+): EncryptedAuthFile {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const key = scryptSync(keyringPassword, salt, 32);
+
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const plaintext = JSON.stringify(payload);
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+
+  return {
+    version: 1,
+    kdf: "scrypt",
+    salt: salt.toString("base64"),
+    iv: iv.toString("base64"),
+    tag: tag.toString("base64"),
+    ciphertext: ciphertext.toString("base64"),
+  };
+}
+
+function parseEncryptedAuthFile(
+  raw: string,
+  filePath: string,
+): EncryptedAuthFile {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    parsed = JSON.parse(raw);
   } catch {
     throw new Error(`Failed to parse auth file "${filePath}".`);
   }
@@ -75,16 +131,84 @@ function readStoredCredentials(
     throw new Error(`Auth file "${filePath}" must contain an object.`);
   }
 
-  const data = parsed as { clientId?: string; clientSecret?: string };
-  const clientId = trimNonEmpty(data.clientId);
-  const clientSecret = trimNonEmpty(data.clientSecret);
-  if (!clientId || !clientSecret) {
-    throw new Error(`Auth file "${filePath}" is missing credentials.`);
+  const value = parsed as Partial<EncryptedAuthFile>;
+  if (value.version !== 1 || value.kdf !== "scrypt") {
+    throw new Error(`Unsupported auth file format in "${filePath}".`);
+  }
+
+  if (
+    typeof value.salt !== "string" ||
+    typeof value.iv !== "string" ||
+    typeof value.tag !== "string" ||
+    typeof value.ciphertext !== "string"
+  ) {
+    throw new Error(`Auth file "${filePath}" is missing encrypted fields.`);
   }
 
   return {
-    clientId,
-    clientSecret,
+    version: 1,
+    kdf: "scrypt",
+    salt: value.salt,
+    iv: value.iv,
+    tag: value.tag,
+    ciphertext: value.ciphertext,
+  };
+}
+
+function decryptStoredAuthState(
+  encrypted: EncryptedAuthFile,
+  keyringPassword: string,
+  filePath: string,
+): StoredAuthState {
+  try {
+    const salt = Buffer.from(encrypted.salt, "base64");
+    const iv = Buffer.from(encrypted.iv, "base64");
+    const tag = Buffer.from(encrypted.tag, "base64");
+    const ciphertext = Buffer.from(encrypted.ciphertext, "base64");
+    const key = scryptSync(keyringPassword, salt, 32);
+
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+
+    const plaintext = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final(),
+    ]).toString("utf8");
+
+    const parsed = JSON.parse(plaintext) as Partial<StoredAuthState>;
+    const clientId = trimNonEmpty(parsed.clientId);
+    const clientSecret = trimNonEmpty(parsed.clientSecret);
+    if (!clientId || !clientSecret || parsed.mode !== "client_credentials") {
+      throw new Error("payload_invalid");
+    }
+
+    return {
+      mode: "client_credentials",
+      clientId,
+      clientSecret,
+      savedAt: parsed.savedAt ?? new Date(0).toISOString(),
+    };
+  } catch {
+    throw new Error(`Failed to decrypt auth file "${filePath}".`);
+  }
+}
+
+function readStoredCredentials(
+  env: NodeJS.ProcessEnv = process.env,
+): { clientId: string; clientSecret: string } | null {
+  const filePath = resolveAuthFilePath(env);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  const keyringPassword = resolveKeyringPassword(env);
+  const raw = fs.readFileSync(filePath, "utf8");
+  const encrypted = parseEncryptedAuthFile(raw, filePath);
+  const state = decryptStoredAuthState(encrypted, keyringPassword, filePath);
+
+  return {
+    clientId: state.clientId,
+    clientSecret: state.clientSecret,
   };
 }
 
@@ -92,9 +216,12 @@ export function storeClientCredentials(
   clientIdRaw: string,
   clientSecretRaw: string,
   env: NodeJS.ProcessEnv = process.env,
+  keyringPasswordRaw?: string,
 ): string {
   const clientId = trimNonEmpty(clientIdRaw);
   const clientSecret = trimNonEmpty(clientSecretRaw);
+  const keyringPassword = resolveKeyringPassword(env, keyringPasswordRaw);
+
   if (!clientId) {
     throw new Error("Client ID cannot be empty.");
   }
@@ -105,13 +232,16 @@ export function storeClientCredentials(
   const authFilePath = resolveAuthFilePath(env);
   fs.mkdirSync(path.dirname(authFilePath), { recursive: true });
 
-  const payload = {
+  const payload: StoredAuthState = {
     mode: "client_credentials",
     clientId,
     clientSecret,
     savedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(authFilePath, `${JSON.stringify(payload, null, 2)}\n`, {
+
+  const encrypted = serializeEncryptedAuthFile(payload, keyringPassword);
+  fs.writeFileSync(authFilePath, `${JSON.stringify(encrypted, null, 2)}\n`, {
+    encoding: "utf8",
     mode: 0o600,
   });
   fs.chmodSync(authFilePath, 0o600);
@@ -256,8 +386,7 @@ export function resolveAuthStatus(
     };
   }
 
-  const stored = readStoredCredentials(env);
-  if (stored) {
+  if (fs.existsSync(authFilePath)) {
     return {
       authMode: "client_credentials",
       hasClientId: true,

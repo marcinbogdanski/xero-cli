@@ -1,5 +1,5 @@
 import { TokenSet, XeroClient } from "xero-node";
-import { acquireClientCredentialsToken } from "./auth";
+import { acquireClientCredentialsToken, resolveClientCredentials } from "./auth";
 
 function parseScopes(raw: string | undefined): string[] {
   if (!raw) {
@@ -16,10 +16,11 @@ export async function createAuthenticatedClient(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<XeroClient> {
   const token = await acquireClientCredentialsToken(env);
+  const credentials = resolveClientCredentials(env);
 
   const client = new XeroClient({
-    clientId: env.XERO_CLIENT_ID?.trim() ?? "",
-    clientSecret: env.XERO_CLIENT_SECRET?.trim() ?? "",
+    clientId: credentials.clientId,
+    clientSecret: credentials.clientSecret,
     grantType: "client_credentials",
     scopes: parseScopes(env.XERO_SCOPES),
   });

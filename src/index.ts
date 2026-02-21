@@ -1,11 +1,28 @@
 #!/usr/bin/env node
 
+import { stdin as input, stdout as output } from "node:process";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
-import { resolveAuthStatus } from "./auth";
+import { resolveAuthStatus, storeClientCredentials } from "./auth";
 import { invokeXeroMethod } from "./invoke";
 import { listTenants } from "./tenants";
 
 const program = new Command();
+
+async function promptRequiredValue(prompt: string): Promise<string> {
+  const rl = createInterface({ input, output });
+  try {
+    for (;;) {
+      const value = (await rl.question(prompt)).trim();
+      if (value.length > 0) {
+        return value;
+      }
+      console.error("Value cannot be empty.");
+    }
+  } finally {
+    rl.close();
+  }
+}
 
 program
   .name("xero")
@@ -34,6 +51,51 @@ auth
     const status = resolveAuthStatus(process.env);
     console.log(JSON.stringify(status, null, 2));
   });
+
+auth
+  .command("login")
+  .description("Store authentication credentials")
+  .option("--mode <mode>", "Authentication mode", "client_credentials")
+  .option("--client-id <id>", "Client ID")
+  .option("--client-secret <secret>", "Client secret")
+  .action(
+    async (options: {
+      mode: string;
+      clientId?: string;
+      clientSecret?: string;
+    }) => {
+      const mode = options.mode.trim().toLowerCase();
+      if (mode !== "client_credentials") {
+        throw new Error(
+          `Unsupported auth mode "${options.mode}". Supported: client_credentials.`,
+        );
+      }
+
+      const clientId =
+        options.clientId?.trim() ??
+        (await promptRequiredValue("Xero client ID: "));
+      const clientSecret =
+        options.clientSecret?.trim() ??
+        (await promptRequiredValue("Xero client secret: "));
+
+      const authFilePath = storeClientCredentials(
+        clientId,
+        clientSecret,
+        process.env,
+      );
+      console.log(
+        JSON.stringify(
+          {
+            mode: "client_credentials",
+            credentialSource: "file",
+            authFilePath,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
 
 const tenants = program
   .command("tenants")

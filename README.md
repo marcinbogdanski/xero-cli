@@ -63,3 +63,9 @@ Override tenant id per command:
 ```bash
 xero invoke accounting getOrganisations --tenant-id your_tenant_id
 ```
+
+List bank transactions (newest first) with paging:
+
+```bash
+xero invoke accounting getBankTransactions -- --order='Date DESC' --page=1 --pageSize=5
+```

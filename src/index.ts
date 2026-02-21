@@ -61,21 +61,26 @@ tenants
 
 program
   .command("invoke")
-  .description("Invoke xero-node API method (minimal scaffold)")
+  .description('Invoke xero-node API method (pass params after "--")')
   .argument("<api>", "API alias (for example: accounting)")
   .argument("<method>", "Method name (for example: getOrganisations)")
   .option("--tenant-id <id>", "Tenant ID override")
+  .allowUnknownOption(true)
+  .allowExcessArguments(true)
   .action(
     async (
       api: string,
       method: string,
       options: { tenantId?: string },
+      command: Command,
     ) => {
+      const rawParams = command.args.slice(2);
       const result = await invokeXeroMethod(
         {
           api,
           method,
           tenantId: options.tenantId,
+          rawParams,
         },
         process.env,
       );

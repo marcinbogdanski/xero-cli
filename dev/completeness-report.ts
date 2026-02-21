@@ -27,6 +27,35 @@ interface MethodSignature {
   parameters: MethodParameter[];
 }
 
+interface ManifestParameter {
+  name: string;
+  declaredType: string;
+  isOptional: boolean;
+  hasDefaultValue: boolean;
+  isRequired: boolean;
+}
+
+interface ManifestMethod {
+  name: string;
+  signatureFound: boolean;
+  params: ManifestParameter[];
+}
+
+interface ManifestApi {
+  name: string;
+  methods: ManifestMethod[];
+}
+
+interface ManifestDocument {
+  schemaVersion: number;
+  generatedAt: string;
+  sdk: {
+    name: string;
+    version: string;
+  };
+  apis: ManifestApi[];
+}
+
 type ParamSupportLevel =
   | "unsupported"
   | "partial"
@@ -35,6 +64,7 @@ type ParamSupportLevel =
   | "ignored";
 
 const EXCLUDED_METHODS = new Set(["setApiKey", "setDefaultAuthentication"]);
+const DEFAULT_MANIFEST_PATH = path.resolve("resources/xero-api-manifest.json");
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -204,222 +234,49 @@ function renderMethodCheckbox(parameters: MethodParameter[]): string {
   return "[ ]";
 }
 
-function normalizeKey(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+function getManifestPathFromArgv(): string {
+  const provided = process.argv[2];
+  if (provided && provided.trim().length > 0) {
+    return path.resolve(provided);
+  }
+  return DEFAULT_MANIFEST_PATH;
 }
 
-function splitParameterList(raw: string): string[] {
-  if (!raw.trim()) {
-    return [];
+function loadManifest(): ManifestDocument {
+  const manifestPath = getManifestPathFromArgv();
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(
+      `Manifest not found at ${manifestPath}. Run: npm run manifest`,
+    );
   }
 
-  const result: string[] = [];
-  let current = "";
-  let depth = 0;
-  let inString = false;
-  let stringQuote = "";
-
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i];
-    if (inString) {
-      current += ch;
-      if (ch === stringQuote && raw[i - 1] !== "\\") {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (ch === "'" || ch === '"' || ch === "`") {
-      inString = true;
-      stringQuote = ch;
-      current += ch;
-      continue;
-    }
-
-    if (ch === "(" || ch === "[" || ch === "{" || ch === "<") {
-      depth += 1;
-    } else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") {
-      depth -= 1;
-    }
-
-    if (ch === "," && depth === 0) {
-      const item = current.trim();
-      if (item) {
-        result.push(item);
-      }
-      current = "";
-      continue;
-    }
-
-    current += ch;
-  }
-
-  const tail = current.trim();
-  if (tail) {
-    result.push(tail);
-  }
-
-  return result;
+  const manifestRaw = fs.readFileSync(manifestPath, "utf8");
+  return JSON.parse(manifestRaw) as ManifestDocument;
 }
 
-function splitAtTopLevel(raw: string, delimiter: string): [string, string] {
-  let depth = 0;
-  let inString = false;
-  let stringQuote = "";
-
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i];
-    if (inString) {
-      if (ch === stringQuote && raw[i - 1] !== "\\") {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (ch === "'" || ch === '"' || ch === "`") {
-      inString = true;
-      stringQuote = ch;
-      continue;
-    }
-
-    if (ch === "(" || ch === "[" || ch === "{" || ch === "<") {
-      depth += 1;
-      continue;
-    }
-    if (ch === ")" || ch === "]" || ch === "}" || ch === ">") {
-      depth -= 1;
-      continue;
-    }
-
-    if (ch === delimiter && depth === 0) {
-      return [raw.slice(0, i), raw.slice(i + 1)];
-    }
-  }
-
-  return [raw, ""];
-}
-
-function parseParameter(raw: string): MethodParameter {
-  const [declaration, defaultValue] = splitAtTopLevel(raw, "=");
-  const [left, type] = splitAtTopLevel(declaration, ":");
-  const leftTrimmed = left.trim();
-  const isOptional = leftTrimmed.endsWith("?");
-  const name = leftTrimmed.replace(/\?$/, "");
-
+function manifestMethodToSignature(method: ManifestMethod): MethodSignature {
   return {
-    name,
-    type: type.trim().replace(/\s+/g, " ") || "unknown",
-    hasDefaultValue: defaultValue.trim().length > 0,
-    isOptional,
+    methodName: method.name,
+    parameters: method.params.map((parameter) => ({
+      name: parameter.name,
+      type: parameter.declaredType,
+      hasDefaultValue: parameter.hasDefaultValue,
+      isOptional: parameter.isOptional,
+    })),
   };
 }
 
-function extractMethodParameterBlock(signature: string): string | null {
-  const start = signature.indexOf("(");
-  if (start < 0) {
-    return null;
-  }
-
-  let depth = 0;
-  for (let i = start; i < signature.length; i += 1) {
-    const ch = signature[i];
-    if (ch === "(") {
-      depth += 1;
-      continue;
-    }
-    if (ch === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        return signature.slice(start + 1, i);
-      }
-    }
-  }
-
-  return null;
-}
-
-function parseMethodSignatures(fileContent: string): MethodSignature[] {
-  const signatures: MethodSignature[] = [];
-  const lines = fileContent.split(/\r?\n/);
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const methodMatch = lines[i].match(/^\s*(\w+)\s*\(/);
-    if (!methodMatch) {
-      continue;
-    }
-
-    const firstLine = lines[i].trimEnd();
-    if (firstLine.includes(";") && !/\)\s*:\s*Promise/.test(firstLine)) {
-      continue;
-    }
-
-    const methodName = methodMatch[1];
-    if (methodName === "constructor") {
-      continue;
-    }
-
-    let signature = firstLine;
-    let j = i;
-    while (!/\)\s*:\s*Promise/.test(signature) && j + 1 < lines.length) {
-      j += 1;
-      signature += `\n${lines[j].trimEnd()}`;
-    }
-
-    i = j;
-
-    if (!/\)\s*:\s*Promise/.test(signature)) {
-      continue;
-    }
-
-    const parameterBlock = extractMethodParameterBlock(signature);
-    if (parameterBlock === null) {
-      continue;
-    }
-
-    const rawParameters = splitParameterList(parameterBlock);
-    signatures.push({
-      methodName,
-      parameters: rawParameters.map(parseParameter),
-    });
-  }
-
-  return signatures;
-}
-
-function loadGeneratedSignatureMap(
-  apiProperties: string[],
-): Map<string, MethodSignature> {
-  const apiDir = getInstalledApiDir();
-  const files = fs
-    .readdirSync(apiDir)
-    .filter((name) => name.endsWith("Api.d.ts"))
-    .map((name) => ({
-      fileName: name,
-      filePath: path.join(apiDir, name),
-      normalized: normalizeKey(name.replace(/\.d\.ts$/, "")),
-    }));
-
+function loadGeneratedSignatureMap(manifest: ManifestDocument): Map<string, MethodSignature> {
   const output = new Map<string, MethodSignature>();
-
-  for (const apiProperty of apiProperties) {
-    const normalizedProperty = normalizeKey(apiProperty);
-    const matchedFile = files.find((file) => file.normalized === normalizedProperty);
-    if (!matchedFile) {
-      continue;
-    }
-
-    const content = fs.readFileSync(matchedFile.filePath, "utf8");
-    for (const signature of parseMethodSignatures(content)) {
-      output.set(`${apiProperty}.${signature.methodName}`, signature);
+  for (const api of manifest.apis) {
+    for (const method of api.methods) {
+      output.set(
+        `${api.name}.${method.name}`,
+        manifestMethodToSignature(method),
+      );
     }
   }
-
   return output;
-}
-
-function getInstalledApiDir(): string {
-  const apisDeclPath = require.resolve("xero-node/dist/gen/api/apis.d.ts");
-  return path.dirname(apisDeclPath);
 }
 
 function listApiMethods(apiClient: Record<string, unknown>): string[] {
@@ -443,7 +300,8 @@ function main(): void {
   const apiProperties = Object.keys(client)
     .filter((key) => key.endsWith("Api"))
     .sort((a, b) => a.localeCompare(b));
-  const signatureMap = loadGeneratedSignatureMap(apiProperties);
+  const manifest = loadManifest();
+  const signatureMap = loadGeneratedSignatureMap(manifest);
 
   for (const apiProperty of apiProperties) {
     const apiClient = (client as unknown as Record<string, unknown>)[apiProperty];

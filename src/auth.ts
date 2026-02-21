@@ -5,22 +5,15 @@ export interface AuthStatus {
   isConfigured: boolean;
 }
 
-export interface AuthTokenSummary {
-  mode: "client_credentials";
-  tokenType: string | null;
-  expiresIn: number | null;
-  scope: string | string[] | null;
-  hasAccessToken: boolean;
-}
-
 export interface ClientCredentialsToken {
+  mode: "client_credentials";
   accessToken: string;
   tokenType: string | null;
   expiresIn: number | null;
   scope: string | string[] | null;
 }
 
-interface TokenResponse {
+interface RawTokenResponse {
   access_token?: string;
   token_type?: string;
   expires_in?: number;
@@ -79,7 +72,7 @@ async function parseErrorDetail(response: Response): Promise<string> {
 
 async function requestClientCredentialsToken(
   env: NodeJS.ProcessEnv = process.env,
-): Promise<TokenResponse> {
+): Promise<RawTokenResponse> {
   const clientId = getRequiredEnvVar(env, "XERO_CLIENT_ID");
   const clientSecret = getRequiredEnvVar(env, "XERO_CLIENT_SECRET");
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
@@ -103,7 +96,7 @@ async function requestClientCredentialsToken(
     );
   }
 
-  return (await response.json()) as TokenResponse;
+  return (await response.json()) as RawTokenResponse;
 }
 
 export async function acquireClientCredentialsToken(
@@ -115,6 +108,7 @@ export async function acquireClientCredentialsToken(
   }
 
   return {
+    mode: "client_credentials",
     accessToken: token.access_token,
     tokenType: token.token_type ?? null,
     expiresIn: token.expires_in ?? null,
@@ -134,19 +128,5 @@ export function resolveAuthStatus(
     hasClientId,
     hasClientSecret,
     isConfigured,
-  };
-}
-
-export async function resolveAuthTokenSummary(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<AuthTokenSummary> {
-  const token = await acquireClientCredentialsToken(env);
-
-  return {
-    mode: "client_credentials",
-    tokenType: token.tokenType,
-    expiresIn: token.expiresIn,
-    scope: token.scope,
-    hasAccessToken: true,
   };
 }

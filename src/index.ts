@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { resolveAuthStatus, resolveAuthTokenSummary } from "./auth";
+import { resolveAuthStatus } from "./auth";
 import { invokeXeroMethod } from "./invoke";
 import { listTenants } from "./tenants";
 
@@ -33,14 +33,6 @@ auth
   .action(() => {
     const status = resolveAuthStatus(process.env);
     console.log(JSON.stringify(status, null, 2));
-  });
-
-auth
-  .command("token")
-  .description("Acquire access token using client credentials")
-  .action(async () => {
-    const summary = await resolveAuthTokenSummary(process.env);
-    console.log(JSON.stringify(summary, null, 2));
   });
 
 const tenants = program

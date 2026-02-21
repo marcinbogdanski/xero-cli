@@ -128,6 +128,11 @@ function normalizeStructuralType(type: string): string {
   return type.replace(/[\s;]/g, "").toLowerCase();
 }
 
+function isStringArrayType(type: string): boolean {
+  const normalized = normalizeStructuralType(type);
+  return normalized === "array<string>" || normalized === "string[]";
+}
+
 function isTenantParamName(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   return normalized === "xerotenantid" || normalized === "xerotentantid";
@@ -144,8 +149,8 @@ function isDefaultOptionsHeadersParam(parameter: MethodParameter): boolean {
 }
 
 function isParamTypeExplicitlySupported(parameter: MethodParameter): boolean {
-  const simpleTypes = new Set(["string", "number", "boolean", "bool"]);
-  return simpleTypes.has(normalizeType(parameter.type));
+  const simpleTypes = new Set(["string", "number", "boolean", "date"]);
+  return simpleTypes.has(normalizeType(parameter.type)) || isStringArrayType(parameter.type);
 }
 
 function getParamSupportLevel(parameter: MethodParameter): ParamSupportLevel {

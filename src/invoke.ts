@@ -45,9 +45,6 @@ interface XeroApiManifest {
   apis: ManifestApi[];
 }
 
-type ScalarType = "string" | "number" | "boolean";
-type SimpleType = ScalarType | "date";
-
 const API_MAPPINGS: ApiMapping[] = [
   { alias: "accounting", property: "accountingApi", requiresTenantId: true },
   { alias: "asset", property: "assetApi", requiresTenantId: true },
@@ -61,28 +58,7 @@ const API_MAPPINGS: ApiMapping[] = [
   { alias: "finance", property: "financeApi", requiresTenantId: true },
 ];
 
-function normalizeType(type: string): string {
-  return type.trim().toLowerCase();
-}
-
-function resolveSimpleType(declaredType: string): SimpleType | undefined {
-  const normalized = normalizeType(declaredType);
-  if (normalized === "string") {
-    return "string";
-  }
-  if (normalized === "number") {
-    return "number";
-  }
-  if (normalized === "boolean") {
-    return "boolean";
-  }
-  if (normalized === "date") {
-    return "date";
-  }
-  return undefined;
-}
-
-const SUPPORTED_SCALAR_TYPE_LABEL = "string, number, boolean, Date";
+const SUPPORTED_SIMPLE_TYPE_LABEL = "string, number, boolean, Date, Array<string>";
 
 const MANIFEST_PATH = path.resolve(__dirname, "../resources/xero-api-manifest.json");
 
@@ -176,12 +152,16 @@ function parseRawNamedParams(rawParams: string[]): Map<string, string> {
   return parsed;
 }
 
-function parseScalarValue(type: SimpleType, rawValue: string, name: string): unknown {
-  if (type === "string") {
+function parseValueByType(
+  declaredType: string,
+  rawValue: string,
+  name: string,
+): unknown {
+  if (declaredType === "string") {
     return rawValue;
   }
 
-  if (type === "number") {
+  if (declaredType === "number") {
     if (rawValue.trim().length === 0) {
       throw new Error(`Parameter "${name}" expects a number but received an empty value.`);
     }
@@ -193,7 +173,7 @@ function parseScalarValue(type: SimpleType, rawValue: string, name: string): unk
     return parsed;
   }
 
-  if (type === "boolean") {
+  if (declaredType === "boolean") {
     const normalized = rawValue.trim().toLowerCase();
     if (normalized === "true") {
       return true;
@@ -207,7 +187,7 @@ function parseScalarValue(type: SimpleType, rawValue: string, name: string): unk
     );
   }
 
-  if (type === "date") {
+  if (declaredType === "Date") {
     if (rawValue.trim().length === 0) {
       throw new Error(`Parameter "${name}" expects a date but received an empty value.`);
     }
@@ -221,8 +201,30 @@ function parseScalarValue(type: SimpleType, rawValue: string, name: string): unk
     return parsed;
   }
 
+  if (declaredType === "Array<string>") {
+    const output: string[] = [];
+    const items = rawValue
+      .split(",")
+      .map((item) => item.trim());
+
+    for (const item of items) {
+      if (item.length === 0) {
+        throw new Error(
+          `Parameter "${name}" expects a non-empty string array element.`,
+        );
+      }
+      output.push(item);
+    }
+
+    if (output.length === 0) {
+      throw new Error(`Parameter "${name}" expects at least one string value.`);
+    }
+
+    return output;
+  }
+
   throw new Error(
-    `Unsupported scalar type "${type}" for parameter "${name}".`,
+    `Parameter "${name}" has unsupported type "${declaredType}". Supported types: ${SUPPORTED_SIMPLE_TYPE_LABEL}.`,
   );
 }
 
@@ -268,18 +270,7 @@ function buildInvokeArgs(
       continue;
     }
 
-    const simpleType = resolveSimpleType(param.declaredType);
-    if (!simpleType) {
-      throw new Error(
-        `Parameter "${param.name}" has unsupported type "${param.declaredType}". Supported types: ${SUPPORTED_SCALAR_TYPE_LABEL}.`,
-      );
-    }
-
-    args[index] = parseScalarValue(
-      simpleType,
-      providedValue,
-      param.name,
-    );
+    args[index] = parseValueByType(param.declaredType, providedValue, param.name);
   }
 
   while (args.length > 0 && args[args.length - 1] === undefined) {

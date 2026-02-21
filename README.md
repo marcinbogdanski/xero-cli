@@ -75,3 +75,9 @@ List bank transactions modified since a specific UTC timestamp:
 ```bash
 xero invoke accounting getBankTransactions -- --ifModifiedSince=2021-01-03T22:31:40Z --page=1 --pageSize=10 --order='Date DESC'
 ```
+
+Filter invoices by multiple statuses (Array<string>):
+
+```bash
+xero invoke accounting getInvoices -- --statuses=AUTHORISED,DRAFT --page=1
+```

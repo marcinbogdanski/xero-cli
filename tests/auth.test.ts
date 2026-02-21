@@ -9,6 +9,7 @@ import {
   resolveAuthStatus,
   resolveClientCredentials,
   storeClientCredentials,
+  storeOAuthTokenSet,
 } from "../src/auth";
 
 let configRoot: string;
@@ -41,6 +42,7 @@ describe("resolveAuthStatus", () => {
       hasClientSecret: false,
       isConfigured: false,
       credentialSource: null,
+      tokenExpiresAt: null,
       authFilePath: resolveAuthFilePath(makeEnv()),
     });
   });
@@ -58,6 +60,7 @@ describe("resolveAuthStatus", () => {
       hasClientSecret: true,
       isConfigured: true,
       credentialSource: "env",
+      tokenExpiresAt: null,
       authFilePath: resolveAuthFilePath(makeEnv()),
     });
   });
@@ -72,6 +75,7 @@ describe("resolveAuthStatus", () => {
       hasClientSecret: true,
       isConfigured: true,
       credentialSource: "file",
+      tokenExpiresAt: null,
       authFilePath: resolveAuthFilePath(makeEnv()),
     });
   });
@@ -91,6 +95,32 @@ describe("resolveAuthStatus", () => {
       hasClientSecret: true,
       isConfigured: false,
       credentialSource: null,
+      tokenExpiresAt: null,
+      authFilePath: resolveAuthFilePath(makeEnv()),
+    });
+  });
+
+  it("reports oauth mode and token expiry from stored file metadata", () => {
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    storeOAuthTokenSet(
+      {
+        access_token: "oauth-access",
+        refresh_token: "oauth-refresh",
+        token_type: "Bearer",
+        expires_at: expiresAt,
+        scope: "accounting.transactions",
+      },
+      makeEnv(),
+    );
+
+    const status = resolveAuthStatus(makeEnv());
+    expect(status).toEqual({
+      authMode: "oauth",
+      hasClientId: true,
+      hasClientSecret: true,
+      isConfigured: true,
+      credentialSource: "file",
+      tokenExpiresAt: new Date(expiresAt * 1000).toISOString(),
       authFilePath: resolveAuthFilePath(makeEnv()),
     });
   });
@@ -298,6 +328,20 @@ describe("storeClientCredentials / resolveClientCredentials", () => {
         XERO_KEYRING_PASSWORD: "wrong-password",
       }),
     ).toThrow(`Failed to decrypt auth file "${resolveAuthFilePath(makeEnv())}".`);
+  });
+
+  it("throws when stored mode is oauth and client credentials are requested", () => {
+    storeOAuthTokenSet(
+      {
+        access_token: "oauth-access",
+        refresh_token: "oauth-refresh",
+      },
+      makeEnv(),
+    );
+
+    expect(() => resolveClientCredentials(makeEnv())).toThrow(
+      'Stored auth mode is "oauth". OAuth runtime flow is not implemented yet.',
+    );
   });
 });
 

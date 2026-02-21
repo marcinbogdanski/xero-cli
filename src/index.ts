@@ -190,9 +190,15 @@ auth
       keyringPassword?: string;
     }) => {
       const mode = options.mode.trim().toLowerCase();
+      if (mode === "oauth") {
+        throw new Error(
+          "OAuth login scaffold: not implemented yet. TODO: consent URL + callback flow.",
+        );
+      }
+
       if (mode !== "client_credentials") {
         throw new Error(
-          `Unsupported auth mode "${options.mode}". Supported: client_credentials.`,
+          `Unsupported auth mode "${options.mode}". Supported: client_credentials, oauth.`,
         );
       }
 

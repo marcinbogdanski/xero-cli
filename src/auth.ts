@@ -8,11 +8,12 @@ import {
 } from "node:crypto";
 
 export interface AuthStatus {
-  authMode: "client_credentials" | null;
+  authMode: "client_credentials" | "oauth" | null;
   hasClientId: boolean;
   hasClientSecret: boolean;
   isConfigured: boolean;
   credentialSource: "env" | "file" | null;
+  tokenExpiresAt: string | null;
   authFilePath: string;
 }
 
@@ -42,16 +43,35 @@ export interface ClientCredentials {
   source: "env" | "file";
 }
 
-interface StoredAuthState {
+interface StoredClientCredentialsState {
   mode: "client_credentials";
   clientId: string;
   clientSecret: string;
   savedAt: string;
 }
 
+export interface OAuthTokenSetInput {
+  access_token?: string;
+  refresh_token?: string;
+  token_type?: string;
+  expires_at?: number;
+  expires_in?: number;
+  scope?: string | string[];
+}
+
+interface StoredOAuthState {
+  mode: "oauth";
+  tokenSet: OAuthTokenSetInput;
+  savedAt: string;
+}
+
+type StoredAuthState = StoredClientCredentialsState | StoredOAuthState;
+
 interface EncryptedAuthFile {
   version: 1;
   kdf: "scrypt";
+  mode: "client_credentials" | "oauth";
+  tokenExpiresAt?: string;
   salt: string;
   iv: string;
   tag: string;
@@ -111,14 +131,30 @@ function serializeEncryptedAuthFile(
   ]);
   const tag = cipher.getAuthTag();
 
+  const tokenExpiresAt =
+    payload.mode === "oauth"
+      ? resolveOAuthTokenExpiryIso(payload.tokenSet)
+      : undefined;
+
   return {
     version: 1,
     kdf: "scrypt",
+    mode: payload.mode,
+    tokenExpiresAt: tokenExpiresAt ?? undefined,
     salt: salt.toString("base64"),
     iv: iv.toString("base64"),
     tag: tag.toString("base64"),
     ciphertext: ciphertext.toString("base64"),
   };
+}
+
+function resolveOAuthTokenExpiryIso(
+  tokenSet: OAuthTokenSetInput,
+): string | null {
+  if (typeof tokenSet.expires_at === "number" && Number.isFinite(tokenSet.expires_at)) {
+    return new Date(tokenSet.expires_at * 1000).toISOString();
+  }
+  return null;
 }
 
 function parseEncryptedAuthFile(
@@ -141,6 +177,18 @@ function parseEncryptedAuthFile(
     throw new Error(`Unsupported auth file format in "${filePath}".`);
   }
 
+  const mode = value.mode ?? "client_credentials";
+  if (mode !== "client_credentials" && mode !== "oauth") {
+    throw new Error(`Auth file "${filePath}" has unsupported mode.`);
+  }
+
+  if (
+    value.tokenExpiresAt !== undefined &&
+    typeof value.tokenExpiresAt !== "string"
+  ) {
+    throw new Error(`Auth file "${filePath}" has invalid token expiry metadata.`);
+  }
+
   if (
     typeof value.salt !== "string" ||
     typeof value.iv !== "string" ||
@@ -153,6 +201,8 @@ function parseEncryptedAuthFile(
   return {
     version: 1,
     kdf: "scrypt",
+    mode,
+    tokenExpiresAt: value.tokenExpiresAt,
     salt: value.salt,
     iv: value.iv,
     tag: value.tag,
@@ -181,18 +231,35 @@ function decryptStoredAuthState(
     ]).toString("utf8");
 
     const parsed = JSON.parse(plaintext) as Partial<StoredAuthState>;
-    const clientId = trimNonEmpty(parsed.clientId);
-    const clientSecret = trimNonEmpty(parsed.clientSecret);
-    if (!clientId || !clientSecret || parsed.mode !== "client_credentials") {
-      throw new Error("payload_invalid");
+    if (parsed.mode === "client_credentials") {
+      const clientId = trimNonEmpty(parsed.clientId);
+      const clientSecret = trimNonEmpty(parsed.clientSecret);
+      if (!clientId || !clientSecret) {
+        throw new Error("payload_invalid");
+      }
+
+      return {
+        mode: "client_credentials",
+        clientId,
+        clientSecret,
+        savedAt: parsed.savedAt ?? new Date(0).toISOString(),
+      };
     }
 
-    return {
-      mode: "client_credentials",
-      clientId,
-      clientSecret,
-      savedAt: parsed.savedAt ?? new Date(0).toISOString(),
-    };
+    if (parsed.mode === "oauth") {
+      const tokenSet = parsed.tokenSet;
+      if (!tokenSet || typeof tokenSet !== "object") {
+        throw new Error("payload_invalid");
+      }
+
+      return {
+        mode: "oauth",
+        tokenSet: tokenSet as OAuthTokenSetInput,
+        savedAt: parsed.savedAt ?? new Date(0).toISOString(),
+      };
+    }
+
+    throw new Error("payload_invalid");
   } catch {
     throw new Error(`Failed to decrypt auth file "${filePath}".`);
   }
@@ -210,6 +277,11 @@ function readStoredCredentials(
   const raw = fs.readFileSync(filePath, "utf8");
   const encrypted = parseEncryptedAuthFile(raw, filePath);
   const state = decryptStoredAuthState(encrypted, keyringPassword, filePath);
+  if (state.mode !== "client_credentials") {
+    throw new Error(
+      `Stored auth mode is "${state.mode}". OAuth runtime flow is not implemented yet.`,
+    );
+  }
 
   return {
     clientId: state.clientId,
@@ -237,10 +309,35 @@ export function storeClientCredentials(
   const authFilePath = resolveAuthFilePath(env);
   fs.mkdirSync(path.dirname(authFilePath), { recursive: true });
 
-  const payload: StoredAuthState = {
+  const payload: StoredClientCredentialsState = {
     mode: "client_credentials",
     clientId,
     clientSecret,
+    savedAt: new Date().toISOString(),
+  };
+
+  const encrypted = serializeEncryptedAuthFile(payload, keyringPassword);
+  fs.writeFileSync(authFilePath, `${JSON.stringify(encrypted, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  fs.chmodSync(authFilePath, 0o600);
+
+  return authFilePath;
+}
+
+export function storeOAuthTokenSet(
+  tokenSet: OAuthTokenSetInput,
+  env: NodeJS.ProcessEnv = process.env,
+  keyringPasswordRaw?: string,
+): string {
+  const keyringPassword = resolveKeyringPassword(env, keyringPasswordRaw);
+  const authFilePath = resolveAuthFilePath(env);
+  fs.mkdirSync(path.dirname(authFilePath), { recursive: true });
+
+  const payload: StoredOAuthState = {
+    mode: "oauth",
+    tokenSet,
     savedAt: new Date().toISOString(),
   };
 
@@ -387,17 +484,23 @@ export function resolveAuthStatus(
       hasClientSecret,
       isConfigured,
       credentialSource: isConfigured ? "env" : null,
+      tokenExpiresAt: null,
       authFilePath,
     };
   }
 
   if (fs.existsSync(authFilePath)) {
+    const encrypted = parseEncryptedAuthFile(
+      fs.readFileSync(authFilePath, "utf8"),
+      authFilePath,
+    );
     return {
-      authMode: "client_credentials",
+      authMode: encrypted.mode,
       hasClientId: true,
       hasClientSecret: true,
       isConfigured: true,
       credentialSource: "file",
+      tokenExpiresAt: encrypted.tokenExpiresAt ?? null,
       authFilePath,
     };
   }
@@ -408,6 +511,7 @@ export function resolveAuthStatus(
     hasClientSecret: false,
     isConfigured: false,
     credentialSource: null,
+    tokenExpiresAt: null,
     authFilePath,
   };
 }

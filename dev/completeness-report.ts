@@ -133,6 +133,10 @@ function isStringArrayType(type: string): boolean {
   return normalized === "array<string>" || normalized === "string[]";
 }
 
+function isBinaryStreamType(type: string): boolean {
+  return normalizeStructuralType(type) === "fs.readstream|readable|buffer";
+}
+
 function isTenantParamName(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   return normalized === "xerotenantid" || normalized === "xerotentantid";
@@ -150,7 +154,11 @@ function isDefaultOptionsHeadersParam(parameter: MethodParameter): boolean {
 
 function isParamTypeExplicitlySupported(parameter: MethodParameter): boolean {
   const simpleTypes = new Set(["string", "number", "boolean", "date"]);
-  return simpleTypes.has(normalizeType(parameter.type)) || isStringArrayType(parameter.type);
+  return (
+    simpleTypes.has(normalizeType(parameter.type)) ||
+    isStringArrayType(parameter.type) ||
+    isBinaryStreamType(parameter.type)
+  );
 }
 
 function getParamSupportLevel(parameter: MethodParameter): ParamSupportLevel {

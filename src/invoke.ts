@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { XeroClient } from "xero-node";
 import { createAuthenticatedClient } from "./client";
@@ -58,7 +58,9 @@ const API_MAPPINGS: ApiMapping[] = [
   { alias: "finance", property: "financeApi", requiresTenantId: true },
 ];
 
-const SUPPORTED_SIMPLE_TYPE_LABEL = "string, number, boolean, Date, Array<string>";
+const BINARY_FILE_PARAM_TYPE = "fs.ReadStream | Readable | Buffer";
+const SUPPORTED_SIMPLE_TYPE_LABEL =
+  "string, number, boolean, Date, Array<string>, fs.ReadStream | Readable | Buffer";
 
 const MANIFEST_PATH = path.resolve(__dirname, "../resources/xero-api-manifest.json");
 
@@ -221,6 +223,32 @@ function parseValueByType(
     }
 
     return output;
+  }
+
+  if (declaredType === BINARY_FILE_PARAM_TYPE) {
+    const filePath = rawValue.trim();
+    if (!filePath) {
+      throw new Error(
+        `Parameter "${name}" expects a file path for type "${BINARY_FILE_PARAM_TYPE}".`,
+      );
+    }
+
+    if (!existsSync(filePath)) {
+      throw new Error(`Parameter "${name}" file does not exist: "${filePath}".`);
+    }
+
+    const stats = statSync(filePath);
+    if (!stats.isFile()) {
+      throw new Error(`Parameter "${name}" expects a file path, got: "${filePath}".`);
+    }
+
+    return createReadStream(filePath);
+  }
+
+  if (declaredType.includes("|")) {
+    throw new Error(
+      `Parameter "${name}" has unsupported union type "${declaredType}".`,
+    );
   }
 
   throw new Error(

@@ -81,3 +81,9 @@ Filter invoices by multiple statuses (Array<string>):
 ```bash
 xero invoke accounting getInvoices -- --statuses=AUTHORISED,DRAFT --page=1
 ```
+
+Upload a file to Xero Files (stream param from local filepath):
+
+```bash
+xero invoke files uploadFile -- --body=resources/sample.pdf --name="Sample PDF upload" --filename=sample.pdf --mimeType=application/pdf
+```

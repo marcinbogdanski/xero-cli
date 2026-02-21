@@ -40,7 +40,7 @@ export XERO_CLIENT_SECRET=your_client_secret
 export XERO_TENANT_ID_DEFAULT=your_tenant_id
 ```
 
-In this mode new access token is requested for every API call. No refresh token is stored in this mode.
+In this mode, a new access token is requested as needed. No refresh token is used or stored.
 
 ### Client Credentials
 
@@ -50,9 +50,9 @@ Login and store app credentials in an encrypted file:
 xero auth login --mode client_credentials
 ```
 
-This flow prompts for `client_id`, `client_secret` and `user_password`. `client_id`/`client_secret` are encrypted using `user_password` and obtains access tokens on demand. No refresh token is stored in this mode.
+This flow prompts for `client_id`, `client_secret`, and a keyring password. The credentials are encrypted at rest, and access tokens are obtained on demand. No refresh token is stored in this mode.
 
-During normal usage password is prompted interactively or read from `XERO_KEYRING_PASSWORD` env var if present.
+During normal usage, the keyring password is prompted interactively or read from `XERO_KEYRING_PASSWORD` if set.
 
 ### OAuth
 
@@ -62,11 +62,11 @@ Login with OAuth and store tokens securely:
 xero auth login --mode oauth
 ```
 
-This flow opens a browser, completes consent, stores the token set (including refresh token) in encrypted storage, and fetches tenants.
+This flow opens a browser, completes consent, stores the OAuth token set (including refresh token) in encrypted storage, and fetches tenants.
 
-Storage file is encrypted with `keyring_password` which is prompted interactively.
+During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PASSWORD` in non-interactive runs.
 
-Check current auth state:
+### Check Auth State:
 
 ```bash
 xero auth status
@@ -74,7 +74,7 @@ xero auth status
 
 ### Keyring Backend
 
-Currently only `file` backend is supported. File is located in `~/.config/xero-cli`
+Currently only `file` backend is supported. Data is stored under `~/.config/xero-cli`.
 
 ## Tenants
 

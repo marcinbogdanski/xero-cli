@@ -20,6 +20,18 @@ npm run cli
 npm run start
 ```
 
+## Testing
+
+```bash
+npm test
+```
+
+Run a single file:
+
+```bash
+npx vitest run tests/auth.test.ts
+```
+
 ## Authentication & Secrets
 
 `xero-cli` supports two authentication modes:

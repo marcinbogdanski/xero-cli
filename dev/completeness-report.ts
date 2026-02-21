@@ -95,7 +95,7 @@ function normalizeType(type: string): string {
 }
 
 function normalizeStructuralType(type: string): string {
-  return type.replace(/\s+/g, "").toLowerCase();
+  return type.replace(/[\s;]/g, "").toLowerCase();
 }
 
 function isTenantParamName(name: string): boolean {
@@ -107,7 +107,7 @@ function isDefaultOptionsHeadersParam(parameter: MethodParameter): boolean {
   const optionsHeadersType = "{headers: {[name: string]: string}}";
   return (
     parameter.name === "options" &&
-    parameter.hasDefaultValue &&
+    (parameter.hasDefaultValue || parameter.isOptional) &&
     normalizeStructuralType(parameter.type) ===
       normalizeStructuralType(optionsHeadersType)
   );
@@ -308,20 +308,75 @@ function parseParameter(raw: string): MethodParameter {
 
   return {
     name,
-    type: type.trim() || "unknown",
+    type: type.trim().replace(/\s+/g, " ") || "unknown",
     hasDefaultValue: defaultValue.trim().length > 0,
     isOptional,
   };
 }
 
+function extractMethodParameterBlock(signature: string): string | null {
+  const start = signature.indexOf("(");
+  if (start < 0) {
+    return null;
+  }
+
+  let depth = 0;
+  for (let i = start; i < signature.length; i += 1) {
+    const ch = signature[i];
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return signature.slice(start + 1, i);
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseMethodSignatures(fileContent: string): MethodSignature[] {
   const signatures: MethodSignature[] = [];
-  const regex = /public async (\w+)\s*\(([\s\S]*?)\)\s*:\s*Promise/g;
+  const lines = fileContent.split(/\r?\n/);
 
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(fileContent)) !== null) {
-    const methodName = match[1];
-    const rawParameters = splitParameterList(match[2]);
+  for (let i = 0; i < lines.length; i += 1) {
+    const methodMatch = lines[i].match(/^\s*(\w+)\s*\(/);
+    if (!methodMatch) {
+      continue;
+    }
+
+    const firstLine = lines[i].trimEnd();
+    if (firstLine.includes(";") && !/\)\s*:\s*Promise/.test(firstLine)) {
+      continue;
+    }
+
+    const methodName = methodMatch[1];
+    if (methodName === "constructor") {
+      continue;
+    }
+
+    let signature = firstLine;
+    let j = i;
+    while (!/\)\s*:\s*Promise/.test(signature) && j + 1 < lines.length) {
+      j += 1;
+      signature += `\n${lines[j].trimEnd()}`;
+    }
+
+    i = j;
+
+    if (!/\)\s*:\s*Promise/.test(signature)) {
+      continue;
+    }
+
+    const parameterBlock = extractMethodParameterBlock(signature);
+    if (parameterBlock === null) {
+      continue;
+    }
+
+    const rawParameters = splitParameterList(parameterBlock);
     signatures.push({
       methodName,
       parameters: rawParameters.map(parseParameter),
@@ -334,14 +389,14 @@ function parseMethodSignatures(fileContent: string): MethodSignature[] {
 function loadGeneratedSignatureMap(
   apiProperties: string[],
 ): Map<string, MethodSignature> {
-  const apiDir = path.resolve(process.cwd(), "other-repos/xero-node/src/gen/api");
+  const apiDir = getInstalledApiDir();
   const files = fs
     .readdirSync(apiDir)
-    .filter((name) => name.endsWith("Api.ts"))
+    .filter((name) => name.endsWith("Api.d.ts"))
     .map((name) => ({
       fileName: name,
       filePath: path.join(apiDir, name),
-      normalized: normalizeKey(name.replace(/\.ts$/, "")),
+      normalized: normalizeKey(name.replace(/\.d\.ts$/, "")),
     }));
 
   const output = new Map<string, MethodSignature>();
@@ -360,6 +415,11 @@ function loadGeneratedSignatureMap(
   }
 
   return output;
+}
+
+function getInstalledApiDir(): string {
+  const apisDeclPath = require.resolve("xero-node/dist/gen/api/apis.d.ts");
+  return path.dirname(apisDeclPath);
 }
 
 function listApiMethods(apiClient: Record<string, unknown>): string[] {

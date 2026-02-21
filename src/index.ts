@@ -28,6 +28,98 @@ async function promptRequiredValue(prompt: string): Promise<string> {
   }
 }
 
+async function promptRequiredValueHidden(prompt: string): Promise<string> {
+  const ttyInput = input as NodeJS.ReadStream & {
+    isTTY?: boolean;
+    isRaw?: boolean;
+    setRawMode?: (mode: boolean) => void;
+  };
+
+  if (!ttyInput.isTTY || typeof ttyInput.setRawMode !== "function") {
+    return promptRequiredValue(prompt);
+  }
+
+  for (;;) {
+    output.write(prompt);
+    const wasRaw = Boolean(ttyInput.isRaw);
+
+    const value = await new Promise<string>((resolve, reject) => {
+      let current = "";
+
+      const cleanup = (): void => {
+        ttyInput.off("data", onData);
+        ttyInput.setRawMode?.(wasRaw);
+        ttyInput.pause();
+      };
+
+      const onData = (chunk: Buffer | string): void => {
+        const raw = chunk.toString("utf8");
+        for (const char of raw) {
+          if (char === "\u0003") {
+            cleanup();
+            output.write("\n");
+            reject(new Error("Interrupted"));
+            return;
+          }
+
+          if (char === "\r" || char === "\n") {
+            cleanup();
+            output.write("\n");
+            resolve(current);
+            return;
+          }
+
+          if (char === "\u007f" || char === "\b" || char === "\u0008") {
+            if (current.length > 0) {
+              current = current.slice(0, -1);
+            }
+            continue;
+          }
+
+          current += char;
+        }
+      };
+
+      try {
+        ttyInput.setRawMode(true);
+        ttyInput.resume();
+        ttyInput.on("data", onData);
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    });
+
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+    console.error("Value cannot be empty.");
+  }
+}
+
+async function ensureRuntimeKeyringPassword(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  if (env.XERO_CLIENT_ID !== undefined || env.XERO_CLIENT_SECRET !== undefined) {
+    return;
+  }
+
+  if (resolveAuthStatus(env).credentialSource !== "file") {
+    return;
+  }
+
+  const fromEnv = env.XERO_KEYRING_PASSWORD?.trim();
+  if (fromEnv) {
+    process.env.XERO_KEYRING_PASSWORD = fromEnv;
+    return;
+  }
+
+  process.env.XERO_KEYRING_PASSWORD = await promptRequiredValueHidden(
+    "Keyring password: ",
+  );
+}
+
 program
   .name("xero")
   .description("Thin CLI wrapper around xero-node")
@@ -60,22 +152,18 @@ auth
   .command("test")
   .description("Test auth by requesting an access token")
   .action(async () => {
+    await ensureRuntimeKeyringPassword(process.env);
     const status = resolveAuthStatus(process.env);
     const token = await acquireClientCredentialsToken(process.env);
-    console.log(
-      JSON.stringify(
-        {
-          ok: true,
-          mode: token.mode,
-          credentialSource: status.credentialSource,
-          tokenType: token.tokenType,
-          expiresIn: token.expiresIn,
-          scope: token.scope,
-        },
-        null,
-        2,
-      ),
-    );
+    const result = {
+      ok: true,
+      mode: token.mode,
+      credentialSource: status.credentialSource,
+      tokenType: token.tokenType,
+      expiresIn: token.expiresIn,
+      scope: token.scope,
+    };
+    console.log(JSON.stringify(result, null, 2));
   });
 
 auth
@@ -104,11 +192,11 @@ auth
         (await promptRequiredValue("Xero client ID: "));
       const clientSecret =
         options.clientSecret?.trim() ??
-        (await promptRequiredValue("Xero client secret: "));
+        (await promptRequiredValueHidden("Xero client secret: "));
       const keyringPassword =
         options.keyringPassword?.trim() ??
         process.env.XERO_KEYRING_PASSWORD?.trim() ??
-        (await promptRequiredValue("Keyring password: "));
+        (await promptRequiredValueHidden("Keyring password: "));
 
       const authFilePath = storeClientCredentials(
         clientId,
@@ -142,6 +230,7 @@ tenants
   .command("list")
   .description("List connected Xero tenants")
   .action(async () => {
+    await ensureRuntimeKeyringPassword(process.env);
     const results = await listTenants(process.env);
     console.log(JSON.stringify(results, null, 2));
   });
@@ -162,6 +251,7 @@ program
       command: Command,
     ) => {
       const rawParams = command.args.slice(2);
+      await ensureRuntimeKeyringPassword(process.env);
       const result = await invokeXeroMethod(
         {
           api,

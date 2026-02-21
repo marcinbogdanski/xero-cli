@@ -60,7 +60,7 @@ const API_MAPPINGS: ApiMapping[] = [
 
 const BINARY_FILE_PARAM_TYPE = "fs.ReadStream | Readable | Buffer";
 const SUPPORTED_SIMPLE_TYPE_LABEL =
-  "string, number, boolean, Date, Array<string>, fs.ReadStream | Readable | Buffer";
+  "string, number, boolean, Date, Array<string>, fs.ReadStream | Readable | Buffer, string literal union";
 
 const MANIFEST_PATH = path.resolve(__dirname, "../resources/xero-api-manifest.json");
 
@@ -245,15 +245,44 @@ function parseValueByType(
     return createReadStream(filePath);
   }
 
-  if (declaredType.includes("|")) {
-    throw new Error(
-      `Parameter "${name}" has unsupported union type "${declaredType}".`,
-    );
+  if (declaredType.includes(" | ")) {
+    const unionValues = parseStringLiteralUnionValues(declaredType);
+    if (!unionValues) {
+      throw new Error(
+        `Parameter "${name}" has unsupported union type "${declaredType}".`,
+      );
+    }
+
+    const value = rawValue.trim();
+    if (!unionValues.includes(value)) {
+      throw new Error(
+        `Parameter "${name}" expects one of [${unionValues.join(", ")}] but received "${rawValue}".`,
+      );
+    }
+    return value;
   }
 
   throw new Error(
     `Parameter "${name}" has unsupported type "${declaredType}". Supported types: ${SUPPORTED_SIMPLE_TYPE_LABEL}.`,
   );
+}
+
+function parseStringLiteralUnionValues(declaredType: string): string[] | undefined {
+  const parts = declaredType.split(" | ").map((part) => part.trim());
+  if (parts.length < 2) {
+    return undefined;
+  }
+
+  const values: string[] = [];
+  for (const part of parts) {
+    const match = part.match(/^'(.*)'$/);
+    if (!match) {
+      return undefined;
+    }
+    values.push(match[1]);
+  }
+
+  return values;
 }
 
 function buildInvokeArgs(

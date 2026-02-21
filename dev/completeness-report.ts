@@ -137,6 +137,19 @@ function isBinaryStreamType(type: string): boolean {
   return normalizeStructuralType(type) === "fs.readstream|readable|buffer";
 }
 
+function isStringLiteralUnionType(type: string): boolean {
+  if (!type.includes(" | ")) {
+    return false;
+  }
+
+  const parts = type.split(" | ").map((part) => part.trim());
+  if (parts.length < 2) {
+    return false;
+  }
+
+  return parts.every((part) => /^'(.*)'$/.test(part));
+}
+
 function isTenantParamName(name: string): boolean {
   const normalized = name.trim().toLowerCase();
   return normalized === "xerotenantid" || normalized === "xerotentantid";
@@ -157,7 +170,8 @@ function isParamTypeExplicitlySupported(parameter: MethodParameter): boolean {
   return (
     simpleTypes.has(normalizeType(parameter.type)) ||
     isStringArrayType(parameter.type) ||
-    isBinaryStreamType(parameter.type)
+    isBinaryStreamType(parameter.type) ||
+    isStringLiteralUnionType(parameter.type)
   );
 }
 

@@ -87,3 +87,9 @@ Upload a file to Xero Files (stream param from local filepath):
 ```bash
 xero invoke files uploadFile -- --body=resources/sample.pdf --name="Sample PDF upload" --filename=sample.pdf --mimeType=application/pdf
 ```
+
+List files sorted by size descending (string-literal union params):
+
+```bash
+xero invoke files getFiles -- --sort=Size --direction=DESC
+```

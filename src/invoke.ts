@@ -59,8 +59,6 @@ const API_MAPPINGS: ApiMapping[] = [
 ];
 
 const BINARY_FILE_PARAM_TYPE = "fs.ReadStream | Readable | Buffer";
-const SUPPORTED_SIMPLE_TYPE_LABEL =
-  "string, number, boolean, Date, Array<string>, fs.ReadStream | Readable | Buffer, string literal union";
 
 const MANIFEST_PATH = path.resolve(__dirname, "../resources/xero-api-manifest.json");
 
@@ -262,9 +260,7 @@ function parseValueByType(
     return value;
   }
 
-  throw new Error(
-    `Parameter "${name}" has unsupported type "${declaredType}". Supported types: ${SUPPORTED_SIMPLE_TYPE_LABEL}.`,
-  );
+  return parseJsonModelValue(rawValue, name, declaredType);
 }
 
 function parseStringLiteralUnionValues(declaredType: string): string[] | undefined {
@@ -283,6 +279,47 @@ function parseStringLiteralUnionValues(declaredType: string): string[] | undefin
   }
 
   return values;
+}
+
+function parseJsonModelValue(
+  rawValue: string,
+  name: string,
+  declaredType: string,
+): unknown {
+  const value = rawValue.trim();
+  if (!value) {
+    throw new Error(
+      `Parameter "${name}" (${declaredType}) expects JSON input or a .json file path.`,
+    );
+  }
+
+  if (value.toLowerCase().endsWith(".json")) {
+    if (!existsSync(value)) {
+      throw new Error(`Parameter "${name}" JSON file does not exist: "${value}".`);
+    }
+
+    const stats = statSync(value);
+    if (!stats.isFile()) {
+      throw new Error(`Parameter "${name}" expects a JSON file path, got: "${value}".`);
+    }
+
+    const fileBody = readFileSync(value, "utf8");
+    try {
+      return JSON.parse(fileBody);
+    } catch {
+      throw new Error(
+        `Parameter "${name}" JSON file is invalid: "${value}".`,
+      );
+    }
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(
+      `Parameter "${name}" (${declaredType}) expects valid JSON or a .json file path.`,
+    );
+  }
 }
 
 function buildInvokeArgs(

@@ -82,6 +82,19 @@ Filter invoices by multiple statuses (Array<string>):
 xero invoke accounting getInvoices -- --statuses=AUTHORISED,DRAFT --page=1
 ```
 
+Pass model payload params as inline JSON or a `.json` file path (no `@` prefix; relative paths are resolved from your current working directory):
+
+```bash
+xero invoke accounting createAccount -- --account='{"code":"201","name":"Sales Test","type":"REVENUE"}'
+xero invoke accounting createAccount -- --account=resources/account.json
+```
+
+Create a draft bill (`ACCPAY`) from JSON payload:
+
+```bash
+xero invoke accounting createInvoices -- --invoices=resources/create-bill-draft.json
+```
+
 Upload a file to Xero Files (stream param from local filepath):
 
 ```bash

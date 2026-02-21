@@ -166,13 +166,14 @@ function isDefaultOptionsHeadersParam(parameter: MethodParameter): boolean {
 }
 
 function isParamTypeExplicitlySupported(parameter: MethodParameter): boolean {
-  const simpleTypes = new Set(["string", "number", "boolean", "date"]);
-  return (
-    simpleTypes.has(normalizeType(parameter.type)) ||
-    isStringArrayType(parameter.type) ||
-    isBinaryStreamType(parameter.type) ||
-    isStringLiteralUnionType(parameter.type)
-  );
+  const type = parameter.type;
+
+  if (type.includes(" | ")) {
+    return isBinaryStreamType(type) || isStringLiteralUnionType(type);
+  }
+
+  // Non-union complex model types are parsed via JSON (inline or .json file).
+  return true;
 }
 
 function getParamSupportLevel(parameter: MethodParameter): ParamSupportLevel {

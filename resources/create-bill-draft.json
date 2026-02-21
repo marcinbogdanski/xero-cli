@@ -1,0 +1,23 @@
+{
+  "invoices": [
+    {
+      "type": "ACCPAY",
+      "contact": {
+        "name": "ABC Furniture"
+      },
+      "date": "2026-02-21",
+      "dueDate": "2026-03-07",
+      "status": "DRAFT",
+      "reference": "cli-bill-draft-test",
+      "lineAmountTypes": "Exclusive",
+      "lineItems": [
+        {
+          "description": "CLI test bill (draft)",
+          "quantity": 1,
+          "unitAmount": 10,
+          "accountCode": "429"
+        }
+      ]
+    }
+  ]
+}

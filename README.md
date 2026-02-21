@@ -19,3 +19,90 @@ xero
 npm run cli
 npm run start
 ```
+
+## Authentication (Client Credentials)
+
+Set environment variables:
+
+```bash
+export XERO_CLIENT_ID=your_client_id
+export XERO_CLIENT_SECRET=your_client_secret
+export XERO_TENANT_ID_DEFAULT=your_tenant_id
+```
+
+Check auth configuration:
+
+```bash
+xero auth status
+```
+
+Request an access token and print summary:
+
+```bash
+xero auth token
+```
+
+## Tenants
+
+List connected tenants from Xero `/connections`:
+
+```bash
+xero tenants list
+```
+
+## Invoke
+
+Get organisation details:
+
+```bash
+xero invoke accounting getOrganisations
+```
+
+Override tenant id per command:
+
+```bash
+xero invoke accounting getOrganisations --tenant-id your_tenant_id
+```
+
+List bank transactions (newest first) with paging:
+
+```bash
+xero invoke accounting getBankTransactions -- --order='Date DESC' --page=1 --pageSize=5
+```
+
+List bank transactions modified since a specific UTC timestamp:
+
+```bash
+xero invoke accounting getBankTransactions -- --ifModifiedSince=2021-01-03T22:31:40Z --page=1 --pageSize=10 --order='Date DESC'
+```
+
+Filter invoices by multiple statuses (Array<string>):
+
+```bash
+xero invoke accounting getInvoices -- --statuses=AUTHORISED,DRAFT --page=1
+```
+
+Pass model payload params as inline JSON or a `.json` file path (no `@` prefix; relative paths are resolved from your current working directory):
+
+```bash
+xero invoke accounting createAccount -- --account='{"code":"201","name":"Sales Test","type":"REVENUE"}'
+xero invoke accounting createAccount -- --account=resources/account.json
+```
+
+Create a draft bill (`ACCPAY`) from JSON payload:
+
+```bash
+xero invoke accounting createInvoices -- --invoices=resources/create-bill-draft.json
+```
+
+Upload a file to Xero Files (stream param from local filepath):
+
+```bash
+xero invoke files uploadFile -- --body=resources/sample.pdf --name="Sample PDF upload" --filename=sample.pdf --mimeType=application/pdf
+```
+
+List files sorted by size descending (string-literal union params):
+
+```bash
+xero invoke files getFiles -- --sort=Size --direction=DESC
+```

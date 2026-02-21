@@ -16,6 +16,11 @@ export interface AuthStatus {
   authFilePath: string;
 }
 
+export interface AuthLogoutResult {
+  deleted: boolean;
+  authFilePath: string;
+}
+
 export interface ClientCredentialsToken {
   mode: "client_credentials";
   accessToken: string;
@@ -403,6 +408,24 @@ export function resolveAuthStatus(
     hasClientSecret: false,
     isConfigured: false,
     credentialSource: null,
+    authFilePath,
+  };
+}
+
+export function logoutAuth(
+  env: NodeJS.ProcessEnv = process.env,
+): AuthLogoutResult {
+  const authFilePath = resolveAuthFilePath(env);
+  if (!fs.existsSync(authFilePath)) {
+    return {
+      deleted: false,
+      authFilePath,
+    };
+  }
+
+  fs.unlinkSync(authFilePath);
+  return {
+    deleted: true,
     authFilePath,
   };
 }

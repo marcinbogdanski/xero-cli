@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireClientCredentialsToken,
+  logoutAuth,
   resolveAuthFilePath,
   resolveAuthStatus,
   resolveClientCredentials,
@@ -297,5 +298,42 @@ describe("storeClientCredentials / resolveClientCredentials", () => {
         XERO_KEYRING_PASSWORD: "wrong-password",
       }),
     ).toThrow(`Failed to decrypt auth file "${resolveAuthFilePath(makeEnv())}".`);
+  });
+});
+
+describe("logoutAuth", () => {
+  it("deletes stored auth file when it exists", () => {
+    const authPath = storeClientCredentials(
+      "stored-id",
+      "stored-secret",
+      makeEnv(),
+    );
+    expect(fs.existsSync(authPath)).toBe(true);
+
+    const result = logoutAuth(makeEnv());
+    expect(result).toEqual({
+      deleted: true,
+      authFilePath: authPath,
+    });
+    expect(fs.existsSync(authPath)).toBe(false);
+  });
+
+  it("returns deleted=false when auth file does not exist", () => {
+    const authPath = resolveAuthFilePath(makeEnv());
+    const result = logoutAuth(makeEnv());
+    expect(result).toEqual({
+      deleted: false,
+      authFilePath: authPath,
+    });
+  });
+
+  it("makes status unconfigured after logout (without env credentials)", () => {
+    storeClientCredentials("stored-id", "stored-secret", makeEnv());
+    expect(resolveAuthStatus(makeEnv()).isConfigured).toBe(true);
+
+    logoutAuth(makeEnv());
+    const status = resolveAuthStatus(makeEnv());
+    expect(status.isConfigured).toBe(false);
+    expect(status.credentialSource).toBe(null);
   });
 });

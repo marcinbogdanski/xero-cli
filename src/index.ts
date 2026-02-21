@@ -5,6 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import {
   acquireClientCredentialsToken,
+  logoutAuth,
   resolveAuthStatus,
   storeClientCredentials,
 } from "./auth";
@@ -146,6 +147,14 @@ auth
   .action(() => {
     const status = resolveAuthStatus(process.env);
     console.log(JSON.stringify(status, null, 2));
+  });
+
+auth
+  .command("logout")
+  .description("Remove stored authentication file")
+  .action(() => {
+    const result = logoutAuth(process.env);
+    console.log(JSON.stringify(result, null, 2));
   });
 
 auth

@@ -76,11 +76,31 @@ Go to `https://developer.xero.com/` and:
   - in **Configuration** tab: note **Client id** and generate **Client secret**
   - after creating Client secret, make sure to click **Save** in top right corner
 
-Login with OAuth and store tokens securely:
+Login with OAuth and store tokens securely (defaults to read-only scope profile):
 
 ```bash
 xero auth login --mode oauth
 ```
+
+You can override scopes with `--scopes`:
+
+- `--scopes=read-only` (default): uses curated best-effort read-only scopes from `resources/xero-scopes.json`
+- `--scopes=all`: uses all known scopes from `resources/xero-scopes.json`
+- `--scopes=scope1,scope2`: explicit allow-list
+
+Available scope profiles/tokens are listed in `xero auth --help`.
+
+Examples:
+
+```bash
+xero auth login --mode oauth --scopes=read-only
+xero auth login --mode oauth --scopes=all
+xero auth login --mode oauth --scopes=read-only,accounting
+xero auth login --mode oauth --scopes=openid,profile,email,offline_access,accounting.transactions.read
+```
+
+When using an explicit scope list, any scope not found in `resources/xero-scopes.json` is passed through with a warning.  
+`read-only` is a best-effort profile, not a strict security guarantee.
 
 This flow shows URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail. **Copy full URL**.
 

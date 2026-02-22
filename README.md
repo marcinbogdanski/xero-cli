@@ -84,9 +84,18 @@ xero auth login --mode oauth
 
 You can override scopes with `--scopes`:
 
-- `--scopes=read-only` (default): uses curated best-effort read-only scopes from `resources/xero-scopes.json`
-- `--scopes=all`: uses all known scopes from `resources/xero-scopes.json`
-- `--scopes=scope1,scope2`: explicit allow-list
+- `--scopes=all`:
+  - uses all known API scopes from `resources/xero-scopes.json`
+  - excludes OIDC scopes by default (`openid`, `profile`, `email`)
+  - includes `offline_access` automatically (required to get refresh token)
+- `--scopes=read-only` (default):
+  - uses curated read-only API scopes from `resources/xero-scopes.json`
+  - `read-only` is a best-effort profile, not a strict security guarantee
+  - includes `offline_access` automatically (required to get refresh token)
+- `--scopes=scope1,scope2`:
+  - uses exactly what you pass
+  - if `offline_access` is missing, CLI prints warning: `no refresh token expected`
+  - if scope is not in known list `resources/xero-scopes.json`, a warning is printed
 
 Available scope profiles/tokens are listed in `xero auth --help`.
 
@@ -99,10 +108,7 @@ xero auth login --mode oauth --scopes=read-only,accounting
 xero auth login --mode oauth --scopes=openid,profile,email,offline_access,accounting.transactions.read
 ```
 
-When using an explicit scope list, any scope not found in `resources/xero-scopes.json` is passed through with a warning.  
-`read-only` is a best-effort profile, not a strict security guarantee.
-
-This flow shows URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail. **Copy full URL**.
+This flow shows a consent URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail. **Copy full URL**.
 
 Then run:
 

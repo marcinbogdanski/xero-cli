@@ -1,0 +1,349 @@
+{
+  "metadata": {
+    "date_created": "2026-02-22",
+    "source_url": "https://developer.xero.com/documentation/guides/oauth2/scopes",
+    "description": "Manually scraped/copied from the source URL and structured into JSON with LLM assistance."
+  },
+  "scopes": [
+    {
+      "scope_name": "offline_access",
+      "description": null
+    },
+    {
+      "scope_name": "openid",
+      "description": "your application intends to use the user’s identity"
+    },
+    {
+      "scope_name": "profile",
+      "description": "first name, last name, full name and xero user id"
+    },
+    {
+      "scope_name": "email",
+      "description": "email address"
+    },
+    {
+      "scope_name": "accounting.transactions",
+      "description": "View and manage your business transactions"
+    },
+    {
+      "scope_name": "accounting.transactions.read",
+      "description": "View your business transactions"
+    },
+    {
+      "scope_name": "accounting.invoices",
+      "description": "View and manage invoices"
+    },
+    {
+      "scope_name": "accounting.invoices.read",
+      "description": "View invoices"
+    },
+    {
+      "scope_name": "accounting.payments",
+      "description": "View and manage payments"
+    },
+    {
+      "scope_name": "accounting.payments.read",
+      "description": "View payments"
+    },
+    {
+      "scope_name": "accounting.banktransactions",
+      "description": "View and manage bank transactions"
+    },
+    {
+      "scope_name": "accounting.banktransactions.read",
+      "description": "View bank transactions"
+    },
+    {
+      "scope_name": "accounting.manualjournals",
+      "description": "View and manage manual journals"
+    },
+    {
+      "scope_name": "accounting.manualjournals.read",
+      "description": "View manual journals"
+    },
+    {
+      "scope_name": "accounting.reports.read",
+      "description": "View your reports"
+    },
+    {
+      "scope_name": "accounting.reports.aged.read",
+      "description": "View aged reports"
+    },
+    {
+      "scope_name": "accounting.reports.balancesheets.read",
+      "description": "View balance sheets"
+    },
+    {
+      "scope_name": "accounting.reports.banksummary.read",
+      "description": "View bank summary"
+    },
+    {
+      "scope_name": "accounting.reports.budgetsummary.read",
+      "description": "View budget summary"
+    },
+    {
+      "scope_name": "accounting.reports.executivesummary.read",
+      "description": "View executive summary"
+    },
+    {
+      "scope_name": "accounting.reports.profitandloss.read",
+      "description": "View profit and loss"
+    },
+    {
+      "scope_name": "accounting.reports.trialbalance.read",
+      "description": "View trial balance"
+    },
+    {
+      "scope_name": "accounting.reports.taxreports.read",
+      "description": "View GST or BAS reports"
+    },
+    {
+      "scope_name": "accounting.reports.tenninetynine.read",
+      "description": "View your 1099 reports"
+    },
+    {
+      "scope_name": "accounting.journals.read",
+      "description": "View your general ledger"
+    },
+    {
+      "scope_name": "accounting.settings",
+      "description": "View and manage your organisation settings"
+    },
+    {
+      "scope_name": "accounting.settings.read",
+      "description": "View your organisation settings"
+    },
+    {
+      "scope_name": "accounting.contacts",
+      "description": "View and manage your contacts"
+    },
+    {
+      "scope_name": "accounting.contacts.read",
+      "description": "View your contacts"
+    },
+    {
+      "scope_name": "accounting.attachments",
+      "description": "View and manage your attachments"
+    },
+    {
+      "scope_name": "accounting.attachments.read",
+      "description": "View your attachments"
+    },
+    {
+      "scope_name": "accounting.budgets.read",
+      "description": "View your budgets"
+    },
+    {
+      "scope_name": "payroll.employees",
+      "description": "View and manage your employees"
+    },
+    {
+      "scope_name": "payroll.employees.read",
+      "description": "View your employees"
+    },
+    {
+      "scope_name": "payroll.payruns",
+      "description": "View and manage your pay runs"
+    },
+    {
+      "scope_name": "payroll.payruns.read",
+      "description": "View your pay runs"
+    },
+    {
+      "scope_name": "payroll.payslip",
+      "description": "View and manage your payslips"
+    },
+    {
+      "scope_name": "payroll.payslip.read",
+      "description": "View your payslips"
+    },
+    {
+      "scope_name": "payroll.timesheets",
+      "description": "View and manage your timesheets"
+    },
+    {
+      "scope_name": "payroll.timesheets.read",
+      "description": "View your timesheets"
+    },
+    {
+      "scope_name": "payroll.settings",
+      "description": "View and manage your payroll settings"
+    },
+    {
+      "scope_name": "payroll.settings.read",
+      "description": "View your payroll settings"
+    },
+    {
+      "scope_name": "payroll.employees",
+      "description": "View and manage your employees"
+    },
+    {
+      "scope_name": "payroll.employees.read",
+      "description": "View your employees"
+    },
+    {
+      "scope_name": "payroll.payruns",
+      "description": "View and manage your pay runs"
+    },
+    {
+      "scope_name": "payroll.payruns.read",
+      "description": "View your pay runs"
+    },
+    {
+      "scope_name": "payroll.payslip",
+      "description": "View and manage your payslips"
+    },
+    {
+      "scope_name": "payroll.payslip.read",
+      "description": "View your payslips"
+    },
+    {
+      "scope_name": "payroll.timesheets",
+      "description": "View and manage your timesheets"
+    },
+    {
+      "scope_name": "payroll.timesheets.read",
+      "description": "View your timesheets"
+    },
+    {
+      "scope_name": "payroll.settings",
+      "description": "View and manage your payroll settings"
+    },
+    {
+      "scope_name": "payroll.settings.read",
+      "description": "View your payroll settings"
+    },
+    {
+      "scope_name": "payroll.employees",
+      "description": "View and manage your employees"
+    },
+    {
+      "scope_name": "payroll.employees.read",
+      "description": "View your employees"
+    },
+    {
+      "scope_name": "payroll.payruns",
+      "description": "View and manage your pay runs"
+    },
+    {
+      "scope_name": "payroll.payruns.read",
+      "description": "View your pay runs"
+    },
+    {
+      "scope_name": "payroll.payslip",
+      "description": "View and manage your payslips"
+    },
+    {
+      "scope_name": "payroll.payslip.read",
+      "description": "View your payslips"
+    },
+    {
+      "scope_name": "payroll.timesheets",
+      "description": "View and manage your timesheets"
+    },
+    {
+      "scope_name": "payroll.timesheets.read",
+      "description": "View your timesheets"
+    },
+    {
+      "scope_name": "payroll.settings",
+      "description": "View and manage your payroll settings"
+    },
+    {
+      "scope_name": "payroll.settings.read",
+      "description": "View your payroll settings"
+    },
+    {
+      "scope_name": "files",
+      "description": "View and manage your file library"
+    },
+    {
+      "scope_name": "files.read",
+      "description": "View your file library"
+    },
+    {
+      "scope_name": "assets",
+      "description": "View and manage your fixed assets"
+    },
+    {
+      "scope_name": "assets.read",
+      "description": "View your fixed assets"
+    },
+    {
+      "scope_name": "projects",
+      "description": "View and manage your projects"
+    },
+    {
+      "scope_name": "projects.read",
+      "description": "View your projects"
+    },
+    {
+      "scope_name": "paymentservices",
+      "description": "View and manage your payment services"
+    },
+    {
+      "scope_name": "bankfeeds",
+      "description": "View and manage your bank statements"
+    },
+    {
+      "scope_name": "finance.accountingactivity.read",
+      "description": "View your Xero usage activity"
+    },
+    {
+      "scope_name": "finance.cashvalidation.read",
+      "description": "View your Bank statement and reconciliation data"
+    },
+    {
+      "scope_name": "finance.statements.read",
+      "description": "View your financial statements"
+    },
+    {
+      "scope_name": "finance.bankstatementsplus.read",
+      "description": "View your Bank statement and reconciled transactions"
+    },
+    {
+      "scope_name": "practicemanager.job",
+      "description": "View and manage your Practice Manager job data"
+    },
+    {
+      "scope_name": "practicemanager.job.read",
+      "description": "View your Practice Manager job data"
+    },
+    {
+      "scope_name": "practicemanager.client",
+      "description": "View and manage your Practice Manager client data"
+    },
+    {
+      "scope_name": "practicemanager.client.read",
+      "description": "View your Practice Manager client data"
+    },
+    {
+      "scope_name": "practicemanager.staff",
+      "description": "View and manage your Practice Manager staff data"
+    },
+    {
+      "scope_name": "practicemanager.staff.read",
+      "description": "View your Practice Manager staff data"
+    },
+    {
+      "scope_name": "practicemanager.time",
+      "description": "View and manage your Practice Manager time data"
+    },
+    {
+      "scope_name": "practicemanager.time.read",
+      "description": "View your Practice Manager time data"
+    },
+    {
+      "scope_name": "einvoicing",
+      "description": "View and manage registration information"
+    },
+    {
+      "scope_name": "app.connections",
+      "description": "View your connection data"
+    },
+    {
+      "scope_name": "marketplace.billing",
+      "description": "View and manage Xero App Store data"
+    }
+  ]
+}

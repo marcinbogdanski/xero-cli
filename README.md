@@ -39,7 +39,7 @@ npx vitest run tests/auth.test.ts
 - `oauth` (recommended for user/org access)
 - `client_credentials` (machine-to-machine where supported)
 
-Secrets are stored in an encrypted local keyring file by default. Non-secret config (selected mode, default tenant, profile metadata) is stored in plain config.
+Secrets are stored in an encrypted local keyring file.
 
 
 ### Quick Start: Client Credentials via Env Vars
@@ -82,7 +82,7 @@ Login with OAuth and store tokens securely:
 xero auth login --mode oauth
 ```
 
-This flow shows URL, open it in browser, completes consent, borwser will try to open callback url and fail. **Copy full URL**.
+This flow shows URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail. **Copy full URL**.
 
 Then run:
 
@@ -90,7 +90,7 @@ Then run:
 xero auth callback
 ```
 
-Paste **full callback URL**. This stores the OAuth token set (including refresh token) in encrypted storage, and fetches tenants.
+Paste **full callback URL**. This stores the OAuth token set (including refresh token) in encrypted storage.
 
 During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PASSWORD` in non-interactive runs.
 

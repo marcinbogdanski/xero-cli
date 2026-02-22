@@ -85,3 +85,56 @@ export function renderOAuthScopesHelpText(): string {
 
   return `${lines.join("\n")}\n`;
 }
+
+export function resolveOAuthScopes(
+  scopesValue: string | undefined,
+): { scopes: string[]; warnings: string[] } {
+  const catalog = loadScopeCatalog();
+  const profiles = catalog.profiles ?? {};
+  const knownScopeNames = new Set((catalog.scopes ?? []).map((scope) => scope.scope_name));
+  const warnings: string[] = [];
+  const scopes: string[] = [];
+  const seen = new Set<string>();
+
+  const raw = (scopesValue ?? "core-read-only").trim();
+  const tokens = raw
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+
+  if (tokens.length === 0) {
+    throw new Error("OAuth scopes cannot be empty.");
+  }
+
+  for (const token of tokens) {
+    const profileScopes = profiles[token];
+    if (profileScopes) {
+      for (const scopeNameRaw of profileScopes) {
+        const scopeName = scopeNameRaw.trim();
+        if (!scopeName || seen.has(scopeName)) {
+          continue;
+        }
+        seen.add(scopeName);
+        scopes.push(scopeName);
+      }
+      continue;
+    }
+
+    if (!knownScopeNames.has(token)) {
+      warnings.push(
+        `Scope "${token}" is not in resources/xero-scopes.json; passing through as provided.`,
+      );
+    }
+
+    if (!seen.has(token)) {
+      seen.add(token);
+      scopes.push(token);
+    }
+  }
+
+  if (!seen.has("offline_access")) {
+    warnings.push('Scope "offline_access" is not requested; no refresh token expected.');
+  }
+
+  return { scopes, warnings };
+}

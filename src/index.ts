@@ -14,17 +14,10 @@ import {
 } from "./auth";
 import { createAuthenticatedClient } from "./client";
 import { invokeXeroMethod } from "./invoke";
-import { renderOAuthScopesHelpText } from "./scopes";
+import { renderOAuthScopesHelpText, resolveOAuthScopes } from "./scopes";
 import { listTenants } from "./tenants";
 
 const program = new Command();
-const DEFAULT_OAUTH_SCOPES = [
-  "offline_access",
-  "accounting.transactions",
-  "accounting.transactions.read",
-  "accounting.settings",
-  "accounting.settings.read",
-];
 
 async function promptRequiredValue(prompt: string): Promise<string> {
   const rl = createInterface({ input, output });
@@ -205,6 +198,11 @@ auth
   .option("--client-id <id>", "Client ID")
   .option("--client-secret <secret>", "Client secret")
   .option("--redirect-uri <uri>", "OAuth redirect URI")
+  .option(
+    "--scopes <scopes>",
+    "OAuth scopes profile or comma-separated scopes",
+    "core-read-only",
+  )
   .option("--keyring-password <password>", "Keyring password")
   .action(
     async (options: {
@@ -212,6 +210,7 @@ auth
       clientId?: string;
       clientSecret?: string;
       redirectUri?: string;
+      scopes?: string;
       keyringPassword?: string;
     }) => {
       const mode = options.mode.trim().toLowerCase();
@@ -258,7 +257,11 @@ auth
           options.redirectUri?.trim() ??
           process.env.XERO_REDIRECT_URI?.trim() ??
           (await promptRequiredValue("OAuth redirect URI: "));
-        const scopes = DEFAULT_OAUTH_SCOPES;
+        const resolvedScopes = resolveOAuthScopes(options.scopes);
+        for (const warning of resolvedScopes.warnings) {
+          console.error(`Warning: ${warning}`);
+        }
+        const scopes = resolvedScopes.scopes;
         const keyringPassword =
           options.keyringPassword?.trim() ??
           process.env.XERO_KEYRING_PASSWORD?.trim() ??

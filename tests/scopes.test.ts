@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderOAuthScopesHelpText } from "../src/scopes";
+import { renderOAuthScopesHelpText, resolveOAuthScopes } from "../src/scopes";
 
 describe("renderOAuthScopesHelpText", () => {
   it("renders scopes and profiles as plain text help", () => {
@@ -26,5 +26,43 @@ describe("renderOAuthScopesHelpText", () => {
 
     expect(text).toContain("  offline_access");
     expect(text).toContain("  payroll.settings.read - View your payroll settings");
+  });
+});
+
+describe("resolveOAuthScopes", () => {
+  it("defaults to core-read-only profile", () => {
+    const result = resolveOAuthScopes(undefined);
+
+    expect(result.scopes).toContain("offline_access");
+    expect(result.scopes).toContain("accounting.transactions.read");
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("expands profile tokens and explicit scopes with dedupe", () => {
+    const result = resolveOAuthScopes(
+      "core-read-only,accounting.invoices,accounting.transactions.read",
+    );
+
+    expect(result.scopes).toContain("accounting.invoices");
+    expect(
+      result.scopes.filter((scope) => scope === "accounting.transactions.read"),
+    ).toHaveLength(1);
+  });
+
+  it("warns and passes through unknown scopes", () => {
+    const result = resolveOAuthScopes("core-read-only,my.custom.scope");
+
+    expect(result.scopes).toContain("my.custom.scope");
+    expect(
+      result.warnings.some((warning) => warning.includes('Scope "my.custom.scope"')),
+    ).toBe(true);
+  });
+
+  it("warns when offline_access is missing", () => {
+    const result = resolveOAuthScopes("accounting.transactions.read");
+
+    expect(result.warnings).toContain(
+      'Scope "offline_access" is not requested; no refresh token expected.',
+    );
   });
 });

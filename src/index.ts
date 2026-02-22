@@ -7,7 +7,6 @@ import { XeroClient } from "xero-node";
 import {
   logoutAuth,
   resolveAuthStatus,
-  resolveStoredAuthConfig,
   storeClientCredentials,
   storeOAuthConfig,
   storeOAuthTokenSet,
@@ -316,70 +315,15 @@ auth
         console.log("");
         console.log(consentUrl);
         console.log("");
-        console.log('After consent, run: xero auth callback --url "<full redirect url>"');
+        const callbackUrl = await promptRequiredValue("Paste full callback URL: ");
+        const tokenSet = await oauthClient.apiCallback(callbackUrl);
+        storeOAuthTokenSet(tokenSet, process.env, keyringPassword);
+        console.log("OAuth login complete.");
         return;
       }
 
       throw new Error(
         `Unsupported auth mode "${options.mode}". Supported: client_credentials, oauth.`,
-      );
-    },
-  );
-
-auth
-  .command("callback")
-  .description("Complete OAuth callback and store token set")
-  .option("--url <url>", "Full redirect callback URL")
-  .option("--keyring-password <password>", "Keyring password")
-  .action(
-    async (options: { url?: string; keyringPassword?: string }) => {
-      const callbackUrl =
-        options.url?.trim() ??
-        (await promptRequiredValue("OAuth callback URL: "));
-      const keyringPassword =
-        options.keyringPassword?.trim() ??
-        process.env.XERO_KEYRING_PASSWORD?.trim() ??
-        (await promptRequiredValueHidden("Keyring password: "));
-
-      process.env.XERO_KEYRING_PASSWORD = keyringPassword;
-      const storedAuth = resolveStoredAuthConfig(process.env);
-      if (!storedAuth || storedAuth.mode !== "oauth") {
-        throw new Error(
-          "OAuth config is missing. Run `xero auth login --mode oauth` first.",
-        );
-      }
-
-      const oauthClient = new XeroClient({
-        clientId: storedAuth.clientId,
-        clientSecret: storedAuth.clientSecret,
-        grantType: "authorization_code",
-        redirectUris: [storedAuth.redirectUri],
-        scopes: storedAuth.scopes,
-      });
-
-      await oauthClient.initialize();
-      const tokenSet = await oauthClient.apiCallback(callbackUrl);
-      const authFilePath = storeOAuthTokenSet(
-        tokenSet,
-        process.env,
-        keyringPassword,
-      );
-
-      console.log(
-        JSON.stringify(
-          {
-            mode: "oauth",
-            credentialSource: "file",
-            authFilePath,
-            tokenExpiresAt:
-              typeof tokenSet.expires_at === "number"
-                ? new Date(tokenSet.expires_at * 1000).toISOString()
-                : null,
-            hasRefreshToken: Boolean(tokenSet.refresh_token),
-          },
-          null,
-          2,
-        ),
       );
     },
   );

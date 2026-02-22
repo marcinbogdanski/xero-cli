@@ -107,15 +107,8 @@ xero auth login --mode oauth --scopes=core-read-only,accounting.invoices
 xero auth login --mode oauth --scopes=openid,profile,email,offline_access,accounting.transactions.read
 ```
 
-This flow shows a consent URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail. **Copy full URL**.
-
-Then run:
-
-```bash
-xero auth callback
-```
-
-Paste **full callback URL**. This stores the OAuth token set (including refresh token) in encrypted storage.
+This flow shows a consent URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail.  
+Back in the CLI, paste the **full callback URL** when prompted. This stores the OAuth token set (including refresh token) in encrypted storage.
 
 During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PASSWORD` in non-interactive runs.
 

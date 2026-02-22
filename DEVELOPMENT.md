@@ -10,7 +10,6 @@ Thin CLI wrapper around `xero-node`, designed for terminal/agent usage with broa
   - `xero about`
   - `xero auth status`
   - `xero auth login`
-  - `xero auth callback`
   - `xero auth test`
   - `xero auth logout`
   - `xero tenants list`

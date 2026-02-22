@@ -132,6 +132,42 @@ export function resolveOAuthScopes(
     }
   }
 
+  if (scopes.length === 1 && scopes[0] === "offline_access") {
+    throw new Error(
+      'Invalid OAuth scopes: "offline_access" alone is not enough. Add at least one API scope.',
+    );
+  }
+
+  if (
+    scopes.every(
+      (scope) =>
+        scope === "offline_access" ||
+        scope === "openid" ||
+        scope === "profile" ||
+        scope === "email",
+    )
+  ) {
+    throw new Error(
+      'Invalid OAuth scopes: identity/refresh scopes alone are not enough. Add at least one API scope.',
+    );
+  }
+
+  if (
+    scopes.some(
+      (scope) =>
+        scope.startsWith("accounting.invoices") ||
+        scope.startsWith("accounting.payments") ||
+        scope.startsWith("accounting.banktransactions") ||
+        scope.startsWith("accounting.manualjournals") ||
+        (scope.startsWith("accounting.reports.") &&
+          scope !== "accounting.reports.read"),
+    )
+  ) {
+    warnings.push(
+      "Requested granular accounting scopes. If consent fails with unauthorized_client/invalid_scope, your app may still be on broad scopes.",
+    );
+  }
+
   if (!seen.has("offline_access")) {
     warnings.push('Scope "offline_access" is not requested; no refresh token expected.');
   }

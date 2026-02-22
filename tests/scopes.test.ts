@@ -65,4 +65,20 @@ describe("resolveOAuthScopes", () => {
       'Scope "offline_access" is not requested; no refresh token expected.',
     );
   });
+
+  it("throws when only offline_access is requested", () => {
+    expect(() => resolveOAuthScopes("offline_access")).toThrow(
+      'Invalid OAuth scopes: "offline_access" alone is not enough. Add at least one API scope.',
+    );
+  });
+
+  it("warns when granular accounting scopes are requested", () => {
+    const result = resolveOAuthScopes("offline_access,accounting.invoices.read");
+
+    expect(
+      result.warnings.some((warning) =>
+        warning.includes("Requested granular accounting scopes"),
+      ),
+    ).toBe(true);
+  });
 });

@@ -28,6 +28,14 @@
 - Keep file names lower-case (for example, `auth.ts`, `invoke.ts`).
 - Prefer explicit error messages and fail-closed validation for CLI input.
 
+## Implementation Simplicity Policy
+- Default to the shortest clean implementation that solves the actual requirement end-to-end.
+- Avoid introducing abstractions (extra classes, layers, wrappers) unless they clearly reduce total complexity.
+- Do not create tiny helpers used in one place; inline straightforward logic at call site.
+- Refactor existing code only when it makes the final code simpler; otherwise prefer minimal, local edits.
+- Keep data flow obvious: parse -> validate -> execute -> output, without indirection.
+- Keep tests focused on behavior and critical edge cases; avoid over-engineered test scaffolding.
+
 ## Testing Guidelines
 - Framework: Vitest (`vitest.config.ts` includes `tests/**/*.test.ts`).
 - Name test files as `*.test.ts` and write behavior-focused test names.

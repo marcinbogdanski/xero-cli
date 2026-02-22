@@ -43,6 +43,11 @@ export interface ClientCredentials {
   source: "env" | "file";
 }
 
+export interface BasicClientCredentials {
+  clientId: string;
+  clientSecret: string;
+}
+
 interface StoredClientCredentialsState {
   mode: "client_credentials";
   clientId: string;
@@ -59,13 +64,39 @@ export interface OAuthTokenSetInput {
   scope?: string | string[];
 }
 
+export interface OAuthClientConfig {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  scopes: string[];
+}
+
 interface StoredOAuthState {
   mode: "oauth";
-  tokenSet: OAuthTokenSetInput;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  scopes: string[];
+  tokenSet?: OAuthTokenSetInput;
   savedAt: string;
 }
 
 type StoredAuthState = StoredClientCredentialsState | StoredOAuthState;
+
+export type StoredAuthConfig =
+  | {
+      mode: "client_credentials";
+      clientId: string;
+      clientSecret: string;
+    }
+  | {
+      mode: "oauth";
+      clientId: string;
+      clientSecret: string;
+      redirectUri: string;
+      scopes: string[];
+      tokenSet?: OAuthTokenSetInput;
+    };
 
 interface EncryptedAuthFile {
   version: 1;
@@ -149,12 +180,27 @@ function serializeEncryptedAuthFile(
 }
 
 function resolveOAuthTokenExpiryIso(
-  tokenSet: OAuthTokenSetInput,
+  tokenSet: OAuthTokenSetInput | undefined,
 ): string | null {
+  if (!tokenSet) {
+    return null;
+  }
   if (typeof tokenSet.expires_at === "number" && Number.isFinite(tokenSet.expires_at)) {
     return new Date(tokenSet.expires_at * 1000).toISOString();
   }
   return null;
+}
+
+function normalizeOAuthScopes(raw: string[]): string[] {
+  const scopes = raw
+    .map((scope) => scope.trim())
+    .filter((scope) => scope.length > 0);
+
+  if (scopes.length === 0) {
+    throw new Error("OAuth scopes cannot be empty.");
+  }
+
+  return scopes;
 }
 
 function parseEncryptedAuthFile(
@@ -247,14 +293,28 @@ function decryptStoredAuthState(
     }
 
     if (parsed.mode === "oauth") {
-      const tokenSet = parsed.tokenSet;
-      if (!tokenSet || typeof tokenSet !== "object") {
+      const clientId = trimNonEmpty(parsed.clientId);
+      const clientSecret = trimNonEmpty(parsed.clientSecret);
+      const redirectUri = trimNonEmpty(parsed.redirectUri);
+      const scopes = Array.isArray(parsed.scopes)
+        ? normalizeOAuthScopes(parsed.scopes.filter((item): item is string => typeof item === "string"))
+        : null;
+      if (!clientId || !clientSecret || !redirectUri || !scopes) {
         throw new Error("payload_invalid");
       }
 
+      const tokenSet =
+        parsed.tokenSet && typeof parsed.tokenSet === "object"
+          ? (parsed.tokenSet as OAuthTokenSetInput)
+          : undefined;
+
       return {
         mode: "oauth",
-        tokenSet: tokenSet as OAuthTokenSetInput,
+        clientId,
+        clientSecret,
+        redirectUri,
+        scopes,
+        tokenSet,
         savedAt: parsed.savedAt ?? new Date(0).toISOString(),
       };
     }
@@ -265,27 +325,85 @@ function decryptStoredAuthState(
   }
 }
 
-function readStoredCredentials(
+function readStoredAuthState(
   env: NodeJS.ProcessEnv = process.env,
-): { clientId: string; clientSecret: string } | null {
+  keyringPasswordRaw?: string,
+): StoredAuthState | null {
   const filePath = resolveAuthFilePath(env);
   if (!fs.existsSync(filePath)) {
     return null;
   }
 
-  const keyringPassword = resolveKeyringPassword(env);
+  const keyringPassword = resolveKeyringPassword(env, keyringPasswordRaw);
   const raw = fs.readFileSync(filePath, "utf8");
   const encrypted = parseEncryptedAuthFile(raw, filePath);
-  const state = decryptStoredAuthState(encrypted, keyringPassword, filePath);
-  if (state.mode !== "client_credentials") {
+  return decryptStoredAuthState(encrypted, keyringPassword, filePath);
+}
+
+function writeStoredAuthState(
+  payload: StoredAuthState,
+  env: NodeJS.ProcessEnv = process.env,
+  keyringPasswordRaw?: string,
+): string {
+  const keyringPassword = resolveKeyringPassword(env, keyringPasswordRaw);
+  const authFilePath = resolveAuthFilePath(env);
+  fs.mkdirSync(path.dirname(authFilePath), { recursive: true });
+
+  const encrypted = serializeEncryptedAuthFile(payload, keyringPassword);
+  fs.writeFileSync(authFilePath, `${JSON.stringify(encrypted, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  fs.chmodSync(authFilePath, 0o600);
+
+  return authFilePath;
+}
+
+export function resolveEnvClientCredentials(
+  env: NodeJS.ProcessEnv = process.env,
+): BasicClientCredentials | null {
+  const envProvided =
+    env.XERO_CLIENT_ID !== undefined || env.XERO_CLIENT_SECRET !== undefined;
+
+  if (!envProvided) {
+    return null;
+  }
+
+  const clientId = trimNonEmpty(env.XERO_CLIENT_ID);
+  const clientSecret = trimNonEmpty(env.XERO_CLIENT_SECRET);
+  if (!clientId || !clientSecret) {
     throw new Error(
-      `Stored auth mode is "${state.mode}". OAuth runtime flow is not implemented yet.`,
+      "Incomplete client credentials in environment. Set both XERO_CLIENT_ID and XERO_CLIENT_SECRET.",
     );
   }
 
+  return { clientId, clientSecret };
+}
+
+export function resolveStoredAuthConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  keyringPasswordRaw?: string,
+): StoredAuthConfig | null {
+  const state = readStoredAuthState(env, keyringPasswordRaw);
+  if (!state) {
+    return null;
+  }
+
+  if (state.mode === "client_credentials") {
+    return {
+      mode: "client_credentials",
+      clientId: state.clientId,
+      clientSecret: state.clientSecret,
+    };
+  }
+
   return {
+    mode: "oauth",
     clientId: state.clientId,
     clientSecret: state.clientSecret,
+    redirectUri: state.redirectUri,
+    scopes: state.scopes,
+    tokenSet: state.tokenSet,
   };
 }
 
@@ -297,17 +415,12 @@ export function storeClientCredentials(
 ): string {
   const clientId = trimNonEmpty(clientIdRaw);
   const clientSecret = trimNonEmpty(clientSecretRaw);
-  const keyringPassword = resolveKeyringPassword(env, keyringPasswordRaw);
-
   if (!clientId) {
     throw new Error("Client ID cannot be empty.");
   }
   if (!clientSecret) {
     throw new Error("Client secret cannot be empty.");
   }
-
-  const authFilePath = resolveAuthFilePath(env);
-  fs.mkdirSync(path.dirname(authFilePath), { recursive: true });
 
   const payload: StoredClientCredentialsState = {
     mode: "client_credentials",
@@ -316,14 +429,39 @@ export function storeClientCredentials(
     savedAt: new Date().toISOString(),
   };
 
-  const encrypted = serializeEncryptedAuthFile(payload, keyringPassword);
-  fs.writeFileSync(authFilePath, `${JSON.stringify(encrypted, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  fs.chmodSync(authFilePath, 0o600);
+  return writeStoredAuthState(payload, env, keyringPasswordRaw);
+}
 
-  return authFilePath;
+export function storeOAuthConfig(
+  config: OAuthClientConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  keyringPasswordRaw?: string,
+): string {
+  const clientId = trimNonEmpty(config.clientId);
+  const clientSecret = trimNonEmpty(config.clientSecret);
+  const redirectUri = trimNonEmpty(config.redirectUri);
+  const scopes = normalizeOAuthScopes(config.scopes);
+
+  if (!clientId) {
+    throw new Error("OAuth client ID cannot be empty.");
+  }
+  if (!clientSecret) {
+    throw new Error("OAuth client secret cannot be empty.");
+  }
+  if (!redirectUri) {
+    throw new Error("OAuth redirect URI cannot be empty.");
+  }
+
+  const payload: StoredOAuthState = {
+    mode: "oauth",
+    clientId,
+    clientSecret,
+    redirectUri,
+    scopes,
+    savedAt: new Date().toISOString(),
+  };
+
+  return writeStoredAuthState(payload, env, keyringPasswordRaw);
 }
 
 export function storeOAuthTokenSet(
@@ -331,72 +469,55 @@ export function storeOAuthTokenSet(
   env: NodeJS.ProcessEnv = process.env,
   keyringPasswordRaw?: string,
 ): string {
-  const keyringPassword = resolveKeyringPassword(env, keyringPasswordRaw);
-  const authFilePath = resolveAuthFilePath(env);
-  fs.mkdirSync(path.dirname(authFilePath), { recursive: true });
+  const state = readStoredAuthState(env, keyringPasswordRaw);
+  if (!state || state.mode !== "oauth") {
+    throw new Error(
+      "OAuth config is missing. Run `xero auth login --mode oauth` first.",
+    );
+  }
 
   const payload: StoredOAuthState = {
     mode: "oauth",
+    clientId: state.clientId,
+    clientSecret: state.clientSecret,
+    redirectUri: state.redirectUri,
+    scopes: state.scopes,
     tokenSet,
     savedAt: new Date().toISOString(),
   };
 
-  const encrypted = serializeEncryptedAuthFile(payload, keyringPassword);
-  fs.writeFileSync(authFilePath, `${JSON.stringify(encrypted, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  fs.chmodSync(authFilePath, 0o600);
-
-  return authFilePath;
+  return writeStoredAuthState(payload, env, keyringPasswordRaw);
 }
 
 export function resolveClientCredentials(
   env: NodeJS.ProcessEnv = process.env,
 ): ClientCredentials {
-  const envProvided =
-    env.XERO_CLIENT_ID !== undefined || env.XERO_CLIENT_SECRET !== undefined;
-
-  if (envProvided) {
-    const envClientId = trimNonEmpty(env.XERO_CLIENT_ID);
-    const envClientSecret = trimNonEmpty(env.XERO_CLIENT_SECRET);
-    if (!envClientId || !envClientSecret) {
-      throw new Error(
-        "Incomplete client credentials in environment. Set both XERO_CLIENT_ID and XERO_CLIENT_SECRET.",
-      );
-    }
-
+  const envCredentials = resolveEnvClientCredentials(env);
+  if (envCredentials) {
     return {
-      clientId: envClientId,
-      clientSecret: envClientSecret,
+      clientId: envCredentials.clientId,
+      clientSecret: envCredentials.clientSecret,
       source: "env",
     };
   }
 
-  const stored = readStoredCredentials(env);
-  if (stored) {
-    return {
-      clientId: stored.clientId,
-      clientSecret: stored.clientSecret,
-      source: "file",
-    };
+  const stored = resolveStoredAuthConfig(env);
+  if (!stored) {
+    throw new Error(
+      "Missing client credentials. Set XERO_CLIENT_ID/XERO_CLIENT_SECRET or run `xero auth login --mode client_credentials`.",
+    );
+  }
+  if (stored.mode !== "client_credentials") {
+    throw new Error(
+      `Stored auth mode is "${stored.mode}". Stored file does not contain client_credentials.`,
+    );
   }
 
-  throw new Error(
-    "Missing client credentials. Set XERO_CLIENT_ID/XERO_CLIENT_SECRET or run `xero auth login --mode client_credentials`.",
-  );
-}
-
-function buildTokenRequestBody(env: NodeJS.ProcessEnv): string {
-  const body = new URLSearchParams();
-  body.set("grant_type", "client_credentials");
-
-  const scopes = env.XERO_SCOPES?.trim();
-  if (scopes) {
-    body.set("scope", scopes);
-  }
-
-  return body.toString();
+  return {
+    clientId: stored.clientId,
+    clientSecret: stored.clientSecret,
+    source: "file",
+  };
 }
 
 async function parseErrorDetail(response: Response): Promise<string> {
@@ -422,22 +543,29 @@ async function parseErrorDetail(response: Response): Promise<string> {
   }
 }
 
-async function requestClientCredentialsToken(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<RawTokenResponse> {
-  const { clientId, clientSecret } = resolveClientCredentials(env);
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
-    "base64",
-  );
+export async function acquireClientCredentialsTokenForCredentials(
+  credentials: BasicClientCredentials,
+  scopeValue: string | undefined,
+): Promise<ClientCredentialsToken> {
+  const body = new URLSearchParams();
+  body.set("grant_type", "client_credentials");
+  const scopes = scopeValue?.trim();
+  if (scopes) {
+    body.set("scope", scopes);
+  }
+
+  const encoded = Buffer.from(
+    `${credentials.clientId}:${credentials.clientSecret}`,
+  ).toString("base64");
 
   const response = await fetch("https://identity.xero.com/connect/token", {
     method: "POST",
     headers: {
-      Authorization: `Basic ${credentials}`,
+      Authorization: `Basic ${encoded}`,
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
     },
-    body: buildTokenRequestBody(env),
+    body: body.toString(),
   });
 
   if (!response.ok) {
@@ -447,13 +575,7 @@ async function requestClientCredentialsToken(
     );
   }
 
-  return (await response.json()) as RawTokenResponse;
-}
-
-export async function acquireClientCredentialsToken(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<ClientCredentialsToken> {
-  const token = await requestClientCredentialsToken(env);
+  const token = (await response.json()) as RawTokenResponse;
   if (!token.access_token) {
     throw new Error("Token request succeeded but access_token is missing.");
   }
@@ -465,6 +587,16 @@ export async function acquireClientCredentialsToken(
     expiresIn: token.expires_in ?? null,
     scope: token.scope ?? null,
   };
+}
+
+export async function acquireClientCredentialsToken(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ClientCredentialsToken> {
+  const { clientId, clientSecret } = resolveClientCredentials(env);
+  return acquireClientCredentialsTokenForCredentials(
+    { clientId, clientSecret },
+    env.XERO_SCOPES,
+  );
 }
 
 export function resolveAuthStatus(

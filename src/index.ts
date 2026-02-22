@@ -3,16 +3,27 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
+import { XeroClient } from "xero-node";
 import {
-  acquireClientCredentialsToken,
   logoutAuth,
   resolveAuthStatus,
+  resolveStoredAuthConfig,
   storeClientCredentials,
+  storeOAuthConfig,
+  storeOAuthTokenSet,
 } from "./auth";
+import { createAuthenticatedClient } from "./client";
 import { invokeXeroMethod } from "./invoke";
 import { listTenants } from "./tenants";
 
 const program = new Command();
+const DEFAULT_OAUTH_SCOPES = [
+  "offline_access",
+  "accounting.transactions",
+  "accounting.transactions.read",
+  "accounting.settings",
+  "accounting.settings.read",
+];
 
 async function promptRequiredValue(prompt: string): Promise<string> {
   const rl = createInterface({ input, output });
@@ -163,14 +174,18 @@ auth
   .action(async () => {
     await ensureRuntimeKeyringPassword(process.env);
     const status = resolveAuthStatus(process.env);
-    const token = await acquireClientCredentialsToken(process.env);
+    const client = await createAuthenticatedClient(process.env);
+    const token = client.readTokenSet();
     const result = {
       ok: true,
-      mode: token.mode,
+      mode: status.authMode,
       credentialSource: status.credentialSource,
-      tokenType: token.tokenType,
-      expiresIn: token.expiresIn,
-      scope: token.scope,
+      tokenType: token.token_type ?? null,
+      tokenExpiresAt:
+        typeof token.expires_at === "number"
+          ? new Date(token.expires_at * 1000).toISOString()
+          : null,
+      scope: token.scope ?? null,
     };
     console.log(JSON.stringify(result, null, 2));
   });
@@ -181,50 +196,161 @@ auth
   .option("--mode <mode>", "Authentication mode", "client_credentials")
   .option("--client-id <id>", "Client ID")
   .option("--client-secret <secret>", "Client secret")
+  .option("--redirect-uri <uri>", "OAuth redirect URI")
   .option("--keyring-password <password>", "Keyring password")
   .action(
     async (options: {
       mode: string;
       clientId?: string;
       clientSecret?: string;
+      redirectUri?: string;
       keyringPassword?: string;
     }) => {
       const mode = options.mode.trim().toLowerCase();
+      if (mode === "client_credentials") {
+        const clientId =
+          options.clientId?.trim() ??
+          (await promptRequiredValue("Xero client ID: "));
+        const clientSecret =
+          options.clientSecret?.trim() ??
+          (await promptRequiredValueHidden("Xero client secret: "));
+        const keyringPassword =
+          options.keyringPassword?.trim() ??
+          process.env.XERO_KEYRING_PASSWORD?.trim() ??
+          (await promptRequiredValueHidden("Keyring password: "));
+
+        const authFilePath = storeClientCredentials(
+          clientId,
+          clientSecret,
+          process.env,
+          keyringPassword,
+        );
+        console.log(
+          JSON.stringify(
+            {
+              mode: "client_credentials",
+              credentialSource: "file",
+              authFilePath,
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+
       if (mode === "oauth") {
-        throw new Error(
-          "OAuth login scaffold: not implemented yet. TODO: consent URL + callback flow.",
+        const clientId =
+          options.clientId?.trim() ??
+          (await promptRequiredValue("Xero client ID: "));
+        const clientSecret =
+          options.clientSecret?.trim() ??
+          (await promptRequiredValueHidden("Xero client secret: "));
+        const redirectUri =
+          options.redirectUri?.trim() ??
+          process.env.XERO_REDIRECT_URI?.trim() ??
+          (await promptRequiredValue("OAuth redirect URI: "));
+        const scopes = DEFAULT_OAUTH_SCOPES;
+        const keyringPassword =
+          options.keyringPassword?.trim() ??
+          process.env.XERO_KEYRING_PASSWORD?.trim() ??
+          (await promptRequiredValueHidden("Keyring password: "));
+
+        const oauthClient = new XeroClient({
+          clientId,
+          clientSecret,
+          grantType: "authorization_code",
+          redirectUris: [redirectUri],
+          scopes,
+        });
+
+        await oauthClient.initialize();
+        const consentUrl = await oauthClient.buildConsentUrl();
+        const authFilePath = storeOAuthConfig(
+          {
+            clientId,
+            clientSecret,
+            redirectUri,
+            scopes,
+          },
+          process.env,
+          keyringPassword,
         );
+
+        console.log(
+          JSON.stringify(
+            {
+              mode: "oauth",
+              credentialSource: "file",
+              authFilePath,
+              redirectUri,
+              scopes,
+              consentUrl,
+              nextStep: 'xero auth callback --url "<full redirect url>"',
+            },
+            null,
+            2,
+          ),
+        );
+        return;
       }
 
-      if (mode !== "client_credentials") {
-        throw new Error(
-          `Unsupported auth mode "${options.mode}". Supported: client_credentials, oauth.`,
-        );
-      }
+      throw new Error(
+        `Unsupported auth mode "${options.mode}". Supported: client_credentials, oauth.`,
+      );
+    },
+  );
 
-      const clientId =
-        options.clientId?.trim() ??
-        (await promptRequiredValue("Xero client ID: "));
-      const clientSecret =
-        options.clientSecret?.trim() ??
-        (await promptRequiredValueHidden("Xero client secret: "));
+auth
+  .command("callback")
+  .description("Complete OAuth callback and store token set")
+  .option("--url <url>", "Full redirect callback URL")
+  .option("--keyring-password <password>", "Keyring password")
+  .action(
+    async (options: { url?: string; keyringPassword?: string }) => {
+      const callbackUrl =
+        options.url?.trim() ??
+        (await promptRequiredValue("OAuth callback URL: "));
       const keyringPassword =
         options.keyringPassword?.trim() ??
         process.env.XERO_KEYRING_PASSWORD?.trim() ??
         (await promptRequiredValueHidden("Keyring password: "));
 
-      const authFilePath = storeClientCredentials(
-        clientId,
-        clientSecret,
+      process.env.XERO_KEYRING_PASSWORD = keyringPassword;
+      const storedAuth = resolveStoredAuthConfig(process.env);
+      if (!storedAuth || storedAuth.mode !== "oauth") {
+        throw new Error(
+          "OAuth config is missing. Run `xero auth login --mode oauth` first.",
+        );
+      }
+
+      const oauthClient = new XeroClient({
+        clientId: storedAuth.clientId,
+        clientSecret: storedAuth.clientSecret,
+        grantType: "authorization_code",
+        redirectUris: [storedAuth.redirectUri],
+        scopes: storedAuth.scopes,
+      });
+
+      await oauthClient.initialize();
+      const tokenSet = await oauthClient.apiCallback(callbackUrl);
+      const authFilePath = storeOAuthTokenSet(
+        tokenSet,
         process.env,
         keyringPassword,
       );
+
       console.log(
         JSON.stringify(
           {
-            mode: "client_credentials",
+            mode: "oauth",
             credentialSource: "file",
             authFilePath,
+            tokenExpiresAt:
+              typeof tokenSet.expires_at === "number"
+                ? new Date(tokenSet.expires_at * 1000).toISOString()
+                : null,
+            hasRefreshToken: Boolean(tokenSet.refresh_token),
           },
           null,
           2,

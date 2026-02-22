@@ -8,7 +8,9 @@ import {
   resolveAuthFilePath,
   resolveAuthStatus,
   resolveClientCredentials,
+  resolveStoredAuthConfig,
   storeClientCredentials,
+  storeOAuthConfig,
   storeOAuthTokenSet,
 } from "../src/auth";
 
@@ -102,6 +104,15 @@ describe("resolveAuthStatus", () => {
 
   it("reports oauth mode and token expiry from stored file metadata", () => {
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    storeOAuthConfig(
+      {
+        clientId: "oauth-client-id",
+        clientSecret: "oauth-client-secret",
+        redirectUri: "http://127.0.0.1:53535/callback",
+        scopes: ["offline_access", "accounting.transactions.read"],
+      },
+      makeEnv(),
+    );
     storeOAuthTokenSet(
       {
         access_token: "oauth-access",
@@ -331,6 +342,15 @@ describe("storeClientCredentials / resolveClientCredentials", () => {
   });
 
   it("throws when stored mode is oauth and client credentials are requested", () => {
+    storeOAuthConfig(
+      {
+        clientId: "oauth-client-id",
+        clientSecret: "oauth-client-secret",
+        redirectUri: "http://127.0.0.1:53535/callback",
+        scopes: ["offline_access", "accounting.transactions.read"],
+      },
+      makeEnv(),
+    );
     storeOAuthTokenSet(
       {
         access_token: "oauth-access",
@@ -340,8 +360,32 @@ describe("storeClientCredentials / resolveClientCredentials", () => {
     );
 
     expect(() => resolveClientCredentials(makeEnv())).toThrow(
-      'Stored auth mode is "oauth". OAuth runtime flow is not implemented yet.',
+      'Stored auth mode is "oauth". Stored file does not contain client_credentials.',
     );
+  });
+});
+
+describe("oauth storage scaffold", () => {
+  it("stores and resolves oauth config without token set", () => {
+    storeOAuthConfig(
+      {
+        clientId: "oauth-client-id",
+        clientSecret: "oauth-client-secret",
+        redirectUri: "http://127.0.0.1:53535/callback",
+        scopes: ["offline_access", "accounting.transactions.read"],
+      },
+      makeEnv(),
+    );
+
+    const oauthState = resolveStoredAuthConfig(makeEnv());
+    expect(oauthState).toEqual({
+      mode: "oauth",
+      clientId: "oauth-client-id",
+      clientSecret: "oauth-client-secret",
+      redirectUri: "http://127.0.0.1:53535/callback",
+      scopes: ["offline_access", "accounting.transactions.read"],
+      tokenSet: undefined,
+    });
   });
 });
 

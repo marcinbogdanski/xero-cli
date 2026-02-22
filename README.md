@@ -68,13 +68,29 @@ During normal usage, the keyring password is prompted interactively or read from
 
 ### OAuth
 
+Go to `https://developer.xero.com/` and:
+
+- create a `Web` application
+  - company URL doesn't matter
+  - **callback URL**: paste exactly `http://localhost:53682/callback`
+  - in **Configuration** tab: note **Client id** and generate **Client secret**
+  - after creating Client secret, make sure to click **Save** in top right corner
+
 Login with OAuth and store tokens securely:
 
 ```bash
 xero auth login --mode oauth
 ```
 
-This flow opens a browser, completes consent, stores the OAuth token set (including refresh token) in encrypted storage, and fetches tenants.
+This flow shows URL, open it in browser, completes consent, borwser will try to open callback url and fail. **Copy full URL**.
+
+Then run:
+
+```bash
+xero auth callback
+```
+
+Paste **full callback URL**. This stores the OAuth token set (including refresh token) in encrypted storage, and fetches tenants.
 
 During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PASSWORD` in non-interactive runs.
 

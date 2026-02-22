@@ -126,6 +126,31 @@ async function ensureRuntimeKeyringPassword(
   );
 }
 
+async function resolveLoginKeyringPassword(
+  explicitPassword: string | undefined,
+): Promise<string> {
+  const fromOption = explicitPassword?.trim();
+  if (fromOption) {
+    return fromOption;
+  }
+
+  const fromEnv = process.env.XERO_KEYRING_PASSWORD?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  for (;;) {
+    const created = await promptRequiredValueHidden("Create keyring password: ");
+    const confirmed = await promptRequiredValueHidden(
+      "Confirm keyring password: ",
+    );
+    if (created === confirmed) {
+      return created;
+    }
+    console.error("Keyring passwords do not match. Please try again.");
+  }
+}
+
 program
   .name("xero")
   .description("Thin CLI wrapper around xero-node")
@@ -221,10 +246,9 @@ auth
         const clientSecret =
           options.clientSecret?.trim() ??
           (await promptRequiredValueHidden("Xero client secret: "));
-        const keyringPassword =
-          options.keyringPassword?.trim() ??
-          process.env.XERO_KEYRING_PASSWORD?.trim() ??
-          (await promptRequiredValueHidden("Keyring password: "));
+        const keyringPassword = await resolveLoginKeyringPassword(
+          options.keyringPassword,
+        );
 
         const authFilePath = storeClientCredentials(
           clientId,
@@ -262,10 +286,9 @@ auth
           console.error(`Warning: ${warning}`);
         }
         const scopes = resolvedScopes.scopes;
-        const keyringPassword =
-          options.keyringPassword?.trim() ??
-          process.env.XERO_KEYRING_PASSWORD?.trim() ??
-          (await promptRequiredValueHidden("Keyring password: "));
+        const keyringPassword = await resolveLoginKeyringPassword(
+          options.keyringPassword,
+        );
 
         const oauthClient = new XeroClient({
           clientId,
@@ -288,21 +311,12 @@ auth
           keyringPassword,
         );
 
-        console.log(
-          JSON.stringify(
-            {
-              mode: "oauth",
-              credentialSource: "file",
-              authFilePath,
-              redirectUri,
-              scopes,
-              consentUrl,
-              nextStep: 'xero auth callback --url "<full redirect url>"',
-            },
-            null,
-            2,
-          ),
-        );
+        console.log("OAuth login initialized.");
+        console.log("Open this URL in your browser to grant access:");
+        console.log("");
+        console.log(consentUrl);
+        console.log("");
+        console.log('After consent, run: xero auth callback --url "<full redirect url>"');
         return;
       }
 

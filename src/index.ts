@@ -14,6 +14,7 @@ import {
 } from "./auth";
 import { createAuthenticatedClient } from "./client";
 import { invokeXeroMethod } from "./invoke";
+import { renderOAuthScopesHelpText } from "./scopes";
 import { listTenants } from "./tenants";
 
 const program = new Command();
@@ -188,6 +189,13 @@ auth
       scope: token.scope ?? null,
     };
     console.log(JSON.stringify(result, null, 2));
+  });
+
+auth
+  .command("scopes")
+  .description("List OAuth scope profiles and known scope tokens")
+  .action(() => {
+    process.stdout.write(renderOAuthScopesHelpText());
   });
 
 auth

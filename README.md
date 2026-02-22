@@ -76,7 +76,7 @@ Go to `https://developer.xero.com/` and:
   - in **Configuration** tab: note **Client id** and generate **Client secret**
   - after creating Client secret, make sure to click **Save** in top right corner
 
-Login with OAuth and store tokens securely (defaults to read-only scope profile):
+Login with OAuth and store tokens securely (defaults to `core-read-only` scope profile):
 
 ```bash
 xero auth login --mode oauth
@@ -84,27 +84,26 @@ xero auth login --mode oauth
 
 You can override scopes with `--scopes`:
 
-- `--scopes=all`:
-  - uses all known API scopes from `resources/xero-scopes.json`
-  - excludes OIDC scopes by default (`openid`, `profile`, `email`)
+- `--scopes=core-read-only` (default):
+  - uses curated core read-only API scopes (run `xero auth scopes` for details)
+  - `core-read-only` is a best-effort profile, not a strict security guarantee
   - includes `offline_access` automatically (required to get refresh token)
-- `--scopes=read-only` (default):
-  - uses curated read-only API scopes from `resources/xero-scopes.json`
-  - `read-only` is a best-effort profile, not a strict security guarantee
+- `--scopes=payroll-read-only`:
+  - uses curated payroll read-only API scopes (run `xero auth scopes` for details)
   - includes `offline_access` automatically (required to get refresh token)
 - `--scopes=scope1,scope2`:
   - uses exactly what you pass
   - if `offline_access` is missing, CLI prints warning: `no refresh token expected`
   - if scope is not in known list `resources/xero-scopes.json`, a warning is printed
 
-Available scope profiles/tokens are listed in `xero auth --help`.
+Run `xero auth scopes` to print available profiles and scopes.
 
 Examples:
 
 ```bash
-xero auth login --mode oauth --scopes=read-only
-xero auth login --mode oauth --scopes=all
-xero auth login --mode oauth --scopes=read-only,accounting
+xero auth login --mode oauth --scopes=core-read-only
+xero auth login --mode oauth --scopes=payroll-read-only
+xero auth login --mode oauth --scopes=core-read-only,accounting.invoices
 xero auth login --mode oauth --scopes=openid,profile,email,offline_access,accounting.transactions.read
 ```
 

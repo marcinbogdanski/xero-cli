@@ -11,7 +11,7 @@
     },
     {
       "scope_name": "openid",
-      "description": "your application intends to use the user’s identity"
+      "description": "your application intends to use the user's identity"
     },
     {
       "scope_name": "profile",
@@ -345,5 +345,41 @@
       "scope_name": "marketplace.billing",
       "description": "View and manage Xero App Store data"
     }
-  ]
+  ],
+  "profiles": {
+    "core-read-only": [
+      "offline_access",
+      "accounting.transactions.read",
+      "accounting.invoices.read",
+      "accounting.payments.read",
+      "accounting.banktransactions.read",
+      "accounting.manualjournals.read",
+      "accounting.reports.read",
+      "accounting.reports.aged.read",
+      "accounting.reports.balancesheets.read",
+      "accounting.reports.banksummary.read",
+      "accounting.reports.budgetsummary.read",
+      "accounting.reports.executivesummary.read",
+      "accounting.reports.profitandloss.read",
+      "accounting.reports.trialbalance.read",
+      "accounting.reports.taxreports.read",
+      "accounting.reports.tenninetynine.read",
+      "accounting.journals.read",
+      "accounting.settings.read",
+      "accounting.contacts.read",
+      "accounting.attachments.read",
+      "accounting.budgets.read",
+      "files.read",
+      "assets.read",
+      "projects.read"
+    ],
+    "payroll-read-only": [
+      "offline_access",
+      "payroll.employees.read",
+      "payroll.payruns.read",
+      "payroll.payslip.read",
+      "payroll.timesheets.read",
+      "payroll.settings.read"
+    ]
+  }
 }

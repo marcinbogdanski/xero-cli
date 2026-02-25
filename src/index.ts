@@ -232,6 +232,10 @@ program
       const status = resolveAuthStatus(process.env);
       const client = await createAuthenticatedClient(process.env);
       const token = client.readTokenSet();
+      const connections = await client.updateTenants(false);
+      const connectionsCount = Array.isArray(connections)
+        ? connections.length
+        : 0;
       const tokenExpiresAt =
         typeof token.expires_at === "number"
           ? new Date(token.expires_at * 1000).toISOString()
@@ -247,6 +251,7 @@ program
       console.log(`  token type: ${token.token_type ?? "unknown"}`);
       console.log(`  token expires at: ${tokenExpiresAt ?? "unknown"}`);
       console.log(`  scope: ${scope ?? "unknown"}`);
+      console.log(`  connections: ${connectionsCount}`);
       return;
     }
 

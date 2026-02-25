@@ -24,6 +24,10 @@ export async function startProxyServer(
           const status = resolveAuthStatus(env);
           const client = await createAuthenticatedClient(env);
           const token = client.readTokenSet();
+          const connections = await client.updateTenants(false);
+          const connectionsCount = Array.isArray(connections)
+            ? connections.length
+            : 0;
           const tokenExpiresAt =
             typeof token.expires_at === "number"
               ? new Date(token.expires_at * 1000).toISOString()
@@ -41,6 +45,7 @@ export async function startProxyServer(
               tokenType: token.token_type ?? "unknown",
               tokenExpiresAt: tokenExpiresAt ?? "unknown",
               scope: scope ?? "unknown",
+              connections: connectionsCount,
             }),
           );
           return;

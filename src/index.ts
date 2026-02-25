@@ -391,6 +391,44 @@ program
       command: Command,
     ) => {
       const rawParams = command.args.slice(2);
+
+      const proxyUrl = process.env.XERO_PROXY_URL?.trim();
+      if (proxyUrl) {
+        const response = await fetch(
+          `${proxyUrl.replace(/\/+$/, "")}/v1/invoke`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              api,
+              method,
+              tenantId: options.tenantId,
+              rawParams,
+            }),
+          },
+        );
+        const raw = await response.text();
+        const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+
+        if (!response.ok) {
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            "error" in parsed &&
+            typeof (parsed as { error?: unknown }).error === "string"
+          ) {
+            throw new Error((parsed as { error: string }).error);
+          }
+          throw new Error(raw || `Proxy request failed (${response.status}).`);
+        }
+
+        console.log(JSON.stringify(parsed, null, 2));
+        return;
+      }
+
       await ensureRuntimeKeyringPassword(process.env);
       const result = await invokeXeroMethod(
         {

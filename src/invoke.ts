@@ -397,10 +397,10 @@ function toPrintableResult(result: unknown): InvokeResult {
   };
 }
 
-export async function invokeXeroMethod(
+function resolveInvokeCall(
   input: InvokeInput,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<InvokeResult> {
+  env: NodeJS.ProcessEnv,
+): { mapping: ApiMapping; args: unknown[] } {
   const mapping = resolveApiMapping(input.api);
   if (!mapping) {
     throw new Error(`Unknown API "${input.api}".`);
@@ -411,18 +411,26 @@ export async function invokeXeroMethod(
     : undefined;
 
   const manifestMethod = resolveManifestMethod(mapping.property, input.method);
-
   if (!manifestMethod || !manifestMethod.signatureFound) {
     throw new Error(
       `No signature metadata for "${mapping.property}.${input.method}". Regenerate/expand resources/xero-api-manifest.json, or use a raw endpoint fallback when available.`,
     );
   }
+
   const args = buildInvokeArgs(manifestMethod, tenantId, input.rawParams ?? []);
+  return { mapping, args };
+}
+
+export async function invokeXeroMethod(
+  input: InvokeInput,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<InvokeResult> {
+  const resolved = resolveInvokeCall(input, env);
 
   const client = await createAuthenticatedClient(env);
-  const apiClient = (client as XeroClient)[mapping.property];
+  const apiClient = (client as XeroClient)[resolved.mapping.property];
   if (!apiClient || typeof apiClient !== "object") {
-    throw new Error(`API client "${mapping.alias}" is not available.`);
+    throw new Error(`API client "${resolved.mapping.alias}" is not available.`);
   }
 
   const method = (apiClient as unknown as Record<string, unknown>)[
@@ -430,10 +438,10 @@ export async function invokeXeroMethod(
   ];
   if (typeof method !== "function") {
     throw new Error(
-      `Unknown method "${input.method}" for API "${mapping.alias}".`,
+      `Unknown method "${input.method}" for API "${resolved.mapping.alias}".`,
     );
   }
 
-  const result = await (method as Function).apply(apiClient, args);
+  const result = await (method as Function).apply(apiClient, resolved.args);
   return toPrintableResult(result);
 }

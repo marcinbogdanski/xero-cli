@@ -233,17 +233,31 @@ auth
 
 auth
   .command("login")
-  .description("Store authentication credentials")
+  .description(
+    "Store authentication credentials (missing values are prompted interactively)",
+  )
   .option("--mode <mode>", "Authentication mode", "client_credentials")
-  .option("--client-id <id>", "Client ID")
-  .option("--client-secret <secret>", "Client secret")
-  .option("--redirect-uri <uri>", "OAuth redirect URI")
+  .option(
+    "--client-id <id>",
+    "Client ID from Xero Developer app (must match configured app)",
+  )
+  .option(
+    "--client-secret <secret>",
+    "Client secret from Xero Developer app (must match configured app)",
+  )
+  .option(
+    "--redirect-uri <uri>",
+    "OAuth redirect URI (must exactly match callback URL configured in Xero Developer app)",
+  )
   .option(
     "--scopes <scopes>",
     "OAuth scopes profile or comma-separated scopes",
     "core-read-only",
   )
-  .option("--keyring-password <password>", "Keyring password")
+  .option(
+    "--keyring-password <password>",
+    "New keyring password for encrypted local auth file (or existing password to reuse)",
+  )
   .action(
     async (options: {
       mode: string;

@@ -44,6 +44,7 @@ export async function startProxyServer(
           method?: unknown;
           tenantId?: unknown;
           rawParams?: unknown;
+          uploadedFiles?: unknown;
         };
 
         if (typeof value.api !== "string" || typeof value.method !== "string") {
@@ -57,6 +58,28 @@ export async function startProxyServer(
           value.rawParams.every((item) => typeof item === "string")
             ? value.rawParams
             : undefined;
+        let uploadedFiles: Record<string, string> | undefined;
+        if (value.uploadedFiles !== undefined) {
+          if (
+            typeof value.uploadedFiles !== "object" ||
+            value.uploadedFiles === null ||
+            Array.isArray(value.uploadedFiles)
+          ) {
+            response.writeHead(400, { "Content-Type": "application/json" });
+            response.end(JSON.stringify({ error: "Payload uploadedFiles must be object." }));
+            return;
+          }
+
+          uploadedFiles = {};
+          for (const [name, file] of Object.entries(value.uploadedFiles)) {
+            if (typeof file !== "string") {
+              response.writeHead(400, { "Content-Type": "application/json" });
+              response.end(JSON.stringify({ error: `Payload uploadedFiles.${name} must be string.` }));
+              return;
+            }
+            uploadedFiles[name] = file;
+          }
+        }
 
         try {
           const result = await invokeXeroMethod(
@@ -65,6 +88,7 @@ export async function startProxyServer(
               method: value.method,
               tenantId: typeof value.tenantId === "string" ? value.tenantId : undefined,
               rawParams,
+              uploadedFiles,
             },
             env,
           );

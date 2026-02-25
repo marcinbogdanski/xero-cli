@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { XeroClient } from "xero-node";
 import { createAuthenticatedClient } from "./client";
@@ -69,6 +69,7 @@ export interface InvokeInput {
   method: string;
   tenantId?: string;
   rawParams?: string[];
+  uploadedFiles?: Record<string, string>;
 }
 
 export interface InvokeResult {
@@ -156,6 +157,7 @@ function parseValueByType(
   declaredType: string,
   rawValue: string,
   name: string,
+  uploadedFile: string | undefined,
 ): unknown {
   if (declaredType === "string") {
     return rawValue;
@@ -224,6 +226,10 @@ function parseValueByType(
   }
 
   if (declaredType === BINARY_FILE_PARAM_TYPE) {
+    if (uploadedFile) {
+      return Buffer.from(uploadedFile, "base64");
+    }
+
     const filePath = rawValue.trim();
     if (!filePath) {
       throw new Error(
@@ -240,7 +246,7 @@ function parseValueByType(
       throw new Error(`Parameter "${name}" expects a file path, got: "${filePath}".`);
     }
 
-    return createReadStream(filePath);
+    return readFileSync(filePath);
   }
 
   if (declaredType.includes(" | ")) {
@@ -326,6 +332,7 @@ function buildInvokeArgs(
   manifestMethod: ManifestMethod,
   tenantId: string | undefined,
   rawParams: string[],
+  uploadedFiles: Record<string, string> | undefined,
 ): unknown[] {
   const providedParams = parseRawNamedParams(rawParams);
   const signatureParams = manifestMethod.params;
@@ -364,7 +371,12 @@ function buildInvokeArgs(
       continue;
     }
 
-    args[index] = parseValueByType(param.declaredType, providedValue, param.name);
+    args[index] = parseValueByType(
+      param.declaredType,
+      providedValue,
+      param.name,
+      uploadedFiles?.[param.name],
+    );
   }
 
   while (args.length > 0 && args[args.length - 1] === undefined) {
@@ -417,7 +429,12 @@ function resolveInvokeCall(
     );
   }
 
-  const args = buildInvokeArgs(manifestMethod, tenantId, input.rawParams ?? []);
+  const args = buildInvokeArgs(
+    manifestMethod,
+    tenantId,
+    input.rawParams ?? [],
+    input.uploadedFiles,
+  );
   return { mapping, args };
 }
 

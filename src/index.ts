@@ -152,9 +152,13 @@ async function resolveLoginKeyringPassword(
   }
 }
 
-function resolveProxyRawParams(rawParams: string[]): string[] {
-  // In proxy mode, expand local .json file path args into inline JSON payloads.
-  return rawParams.map((token) => {
+function resolveProxyInvokePayload(rawParams: string[]): {
+  rawParams: string[];
+  uploadedFiles?: Record<string, string>;
+} {
+  // In proxy mode, expand local .json args and upload local binary files.
+  const uploadedFiles: Record<string, string> = {};
+  const proxyRawParams = rawParams.map((token) => {
     if (!token.startsWith("--")) {
       return token;
     }
@@ -164,8 +168,15 @@ function resolveProxyRawParams(rawParams: string[]): string[] {
       return token;
     }
 
+    const name = token.slice(2, separatorIndex).trim();
     const value = token.slice(separatorIndex + 1).trim();
     if (!value.toLowerCase().endsWith(".json")) {
+      if (existsSync(value)) {
+        const stats = statSync(value);
+        if (stats.isFile()) {
+          uploadedFiles[name] = readFileSync(value).toString("base64");
+        }
+      }
       return token;
     }
 
@@ -187,6 +198,12 @@ function resolveProxyRawParams(rawParams: string[]): string[] {
 
     return `${token.slice(0, separatorIndex + 1)}${JSON.stringify(parsedJson)}`;
   });
+
+  return {
+    rawParams: proxyRawParams,
+    uploadedFiles:
+      Object.keys(uploadedFiles).length > 0 ? uploadedFiles : undefined,
+  };
 }
 
 program
@@ -432,6 +449,7 @@ program
 
       const proxyUrl = process.env.XERO_PROXY_URL?.trim();
       if (proxyUrl) {
+        const proxyPayload = resolveProxyInvokePayload(rawParams);
         const response = await fetch(
           `${proxyUrl.replace(/\/+$/, "")}/v1/invoke`,
           {
@@ -444,7 +462,8 @@ program
               api,
               method,
               tenantId: options.tenantId,
-              rawParams: resolveProxyRawParams(rawParams),
+              rawParams: proxyPayload.rawParams,
+              uploadedFiles: proxyPayload.uploadedFiles,
             }),
           },
         );

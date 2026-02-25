@@ -20,9 +20,31 @@ npm run cli
 npm run start
 ```
 
-## Authentication (Client Credentials)
+## Testing
 
-Set environment variables:
+```bash
+npm test
+```
+
+Run a single file:
+
+```bash
+npx vitest run tests/auth.test.ts
+```
+
+## Authentication & Secrets
+
+`xero-cli` supports two authentication modes:
+
+- `oauth` (recommended for user/org access)
+- `client_credentials` (machine-to-machine where supported)
+
+Secrets are stored in an encrypted local keyring file.
+
+
+### Quick Start: Client Credentials via Env Vars
+
+Environment auth is simplest way to start:
 
 ```bash
 export XERO_CLIENT_ID=your_client_id
@@ -30,17 +52,77 @@ export XERO_CLIENT_SECRET=your_client_secret
 export XERO_TENANT_ID_DEFAULT=your_tenant_id
 ```
 
-Check auth configuration:
+In this mode, a new access token is requested as needed. No refresh token is used or stored.
+
+### Client Credentials
+
+Login and store app credentials in an encrypted file:
+
+```bash
+xero auth login --mode client_credentials
+```
+
+This flow prompts for `client_id`, `client_secret`, and a keyring password. The credentials are encrypted at rest, and access tokens are obtained on demand. No refresh token is stored in this mode.
+
+During normal usage, the keyring password is prompted interactively or read from `XERO_KEYRING_PASSWORD` if set.
+
+### OAuth
+
+Go to `https://developer.xero.com/` and:
+
+- create a `Web` application
+  - company URL doesn't matter
+  - **callback URL**: paste exactly `http://localhost:53682/callback`
+  - in **Configuration** tab: note **Client id** and generate **Client secret**
+  - after creating Client secret, make sure to click **Save** in top right corner
+
+Login with OAuth and store tokens securely (defaults to `core-read-only` scope profile):
+
+```bash
+xero auth login --mode oauth
+```
+
+You can override scopes with `--scopes`:
+
+- `--scopes=core-read-only` (default):
+  - uses curated core read-only API scopes (run `xero auth scopes` for details)
+  - `core-read-only` is a best-effort profile, not a strict security guarantee
+  - includes `offline_access` automatically (required to get refresh token)
+- `--scopes=payroll-read-only`:
+  - uses curated payroll read-only API scopes (run `xero auth scopes` for details)
+  - includes `offline_access` automatically (required to get refresh token)
+- `--scopes=scope1,scope2`:
+  - uses exactly what you pass
+  - if `offline_access` is missing, CLI prints warning: `no refresh token expected`
+  - if scope is not in known list `resources/xero-scopes.json`, a warning is printed
+
+Run `xero auth scopes` to print available profiles and scopes.
+
+Examples:
+
+```bash
+xero auth login --mode oauth --scopes=core-read-only
+xero auth login --mode oauth --scopes=payroll-read-only
+xero auth login --mode oauth --scopes=core-read-only,accounting.invoices
+xero auth login --mode oauth --scopes=openid,profile,email,offline_access,accounting.transactions.read
+```
+
+This flow shows a consent URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail.  
+Back in the CLI, paste the **full callback URL** when prompted. This stores the OAuth token set (including refresh token) in encrypted storage.
+
+During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PASSWORD` in non-interactive runs.
+
+### Check Auth State:
 
 ```bash
 xero auth status
+xero auth test
+xero auth logout
 ```
 
-Request an access token and print summary:
+### Keyring Backend
 
-```bash
-xero auth token
-```
+Currently only `file` backend is supported. Data is stored under `~/.config/xero-cli`.
 
 ## Tenants
 
@@ -86,7 +168,6 @@ Pass model payload params as inline JSON or a `.json` file path (no `@` prefix; 
 
 ```bash
 xero invoke accounting createAccount -- --account='{"code":"201","name":"Sales Test","type":"REVENUE"}'
-xero invoke accounting createAccount -- --account=resources/account.json
 ```
 
 Create a draft bill (`ACCPAY`) from JSON payload:

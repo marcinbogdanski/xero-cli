@@ -13,6 +13,7 @@ import {
 } from "./auth";
 import { createAuthenticatedClient } from "./client";
 import { invokeXeroMethod } from "./invoke";
+import { PROXY_HOST, PROXY_PORT, startProxyServer } from "./proxy";
 import { renderOAuthScopesHelpText, resolveOAuthScopes } from "./scopes";
 import { listTenants } from "./tenants";
 
@@ -364,6 +365,14 @@ tenants
     await ensureRuntimeKeyringPassword(process.env);
     const results = await listTenants(process.env);
     console.log(JSON.stringify(results, null, 2));
+  });
+
+program
+  .command("proxy")
+  .description(`Run invoke proxy server on ${PROXY_HOST}:${PROXY_PORT}`)
+  .action(async () => {
+    await ensureRuntimeKeyringPassword(process.env);
+    await startProxyServer(process.env);
   });
 
 program

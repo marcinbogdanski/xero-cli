@@ -234,7 +234,6 @@ program
     if (!proxyUrl) {
       console.log(`  app mode: ${green("direct")}`);
       console.log("");
-      console.log("Keyring password:");
       await ensureRuntimeKeyringPassword(process.env);
       console.log("");
 
@@ -274,7 +273,7 @@ program
     }
 
     const proxyBaseUrl = proxyUrl.replace(/\/+$/, "");
-    console.log("  app mode: proxy");
+    console.log(`  app mode: ${green("proxy")}`);
     console.log(`  proxy url: ${proxyBaseUrl}`);
     console.log("");
     console.log("Testing proxy reachability:");
@@ -557,6 +556,14 @@ program
   .description(`Run invoke proxy server on ${PROXY_HOST}:${PROXY_PORT}`)
   .action(async () => {
     await ensureRuntimeKeyringPassword(process.env);
+    const client = await createAuthenticatedClient(process.env);
+    const connections = await client.updateTenants(false);
+    const connectionsCount = Array.isArray(connections)
+      ? connections.length
+      : 0;
+    console.log(
+      `Proxy startup auth check successful (connections: ${connectionsCount}).`,
+    );
     await startProxyServer(process.env);
   });
 

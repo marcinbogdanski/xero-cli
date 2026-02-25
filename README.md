@@ -137,6 +137,8 @@ xero auth login --mode oauth
 XERO_KEYRING_PASSWORD=your_keyring_password xero proxy
 ```
 
+`xero proxy` runs a startup auth preflight (Xero `/connections`) and exits if auth/token/connectivity is invalid.
+
 Proxy server defaults:
 
 - bind host: `0.0.0.0`

@@ -120,6 +120,8 @@ xero doctor
 xero auth logout
 ```
 
+`xero doctor` always performs an authenticated Xero `/connections` call.
+
 ### Keyring Backend
 
 Currently only `file` backend is supported. Data is stored under `~/.config/xero-cli`.

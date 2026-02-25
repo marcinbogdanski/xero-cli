@@ -505,6 +505,16 @@ if (process.argv.length <= 2) {
   process.exit(0);
 }
 
+if (process.env.XERO_PROXY_URL?.trim()) {
+  const topLevelCommand = process.argv[2];
+  if (topLevelCommand === "auth" || topLevelCommand === "tenants") {
+    console.error(
+      `Command "${topLevelCommand}" is disabled when XERO_PROXY_URL is set.`,
+    );
+    process.exit(1);
+  }
+}
+
 program.parseAsync(process.argv).catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);

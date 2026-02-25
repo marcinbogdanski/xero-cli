@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
@@ -149,6 +150,43 @@ async function resolveLoginKeyringPassword(
     }
     console.error("Keyring passwords do not match. Please try again.");
   }
+}
+
+function resolveProxyRawParams(rawParams: string[]): string[] {
+  // In proxy mode, expand local .json file path args into inline JSON payloads.
+  return rawParams.map((token) => {
+    if (!token.startsWith("--")) {
+      return token;
+    }
+
+    const separatorIndex = token.indexOf("=");
+    if (separatorIndex <= 0) {
+      return token;
+    }
+
+    const value = token.slice(separatorIndex + 1).trim();
+    if (!value.toLowerCase().endsWith(".json")) {
+      return token;
+    }
+
+    if (!existsSync(value)) {
+      throw new Error(`Proxy JSON file does not exist: "${value}".`);
+    }
+
+    const stats = statSync(value);
+    if (!stats.isFile()) {
+      throw new Error(`Proxy JSON path is not a file: "${value}".`);
+    }
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(readFileSync(value, "utf8"));
+    } catch {
+      throw new Error(`Proxy JSON file is invalid: "${value}".`);
+    }
+
+    return `${token.slice(0, separatorIndex + 1)}${JSON.stringify(parsedJson)}`;
+  });
 }
 
 program
@@ -406,7 +444,7 @@ program
               api,
               method,
               tenantId: options.tenantId,
-              rawParams,
+              rawParams: resolveProxyRawParams(rawParams),
             }),
           },
         );

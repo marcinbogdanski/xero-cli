@@ -169,6 +169,10 @@ function resolveProxyInvokePayload(rawParams: string[]): {
     }
 
     const name = token.slice(2, separatorIndex).trim();
+    if (!name) {
+      return token;
+    }
+
     const value = token.slice(separatorIndex + 1).trim();
     if (!value.toLowerCase().endsWith(".json")) {
       if (existsSync(value)) {
@@ -468,7 +472,12 @@ program
           },
         );
         const raw = await response.text();
-        const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+        let parsed: unknown = null;
+        try {
+          parsed = raw ? (JSON.parse(raw) as unknown) : null;
+        } catch {
+          parsed = null;
+        }
 
         if (!response.ok) {
           if (
@@ -480,6 +489,11 @@ program
             throw new Error((parsed as { error: string }).error);
           }
           throw new Error(raw || `Proxy request failed (${response.status}).`);
+        }
+
+        if (parsed === null && raw) {
+          console.log(raw);
+          return;
         }
 
         console.log(JSON.stringify(parsed, null, 2));

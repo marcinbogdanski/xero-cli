@@ -116,7 +116,7 @@ During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PAS
 
 ```bash
 xero auth status
-xero auth test
+xero doctor
 xero auth logout
 ```
 
@@ -141,6 +141,7 @@ Proxy server defaults:
 - port: `8765`
 - routes:
   - `GET /healthz`
+  - `POST /v1/doctor`
   - `POST /v1/invoke`
 
 Agent machine:
@@ -152,6 +153,7 @@ XERO_PROXY_URL=http://trusted-host:8765 xero invoke accounting getOrganisations
 When `XERO_PROXY_URL` is set:
 
 - `xero invoke ...` is delegated through proxy
+- `xero doctor` checks proxy reachability then runs auth check on proxy server
 - `xero auth ...` is disabled
 - `xero tenants ...` is disabled
 - `xero about` and help stay local

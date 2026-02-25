@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { resolveAuthStatus } from "./auth";
+import { createAuthenticatedClient } from "./client";
 import { invokeXeroMethod } from "./invoke";
 
 export const PROXY_HOST = "0.0.0.0";
@@ -15,6 +17,39 @@ export async function startProxyServer(
         response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
         response.end("ok\n");
         return;
+      }
+
+      if (request.method === "POST" && path === "/v1/doctor") {
+        try {
+          const status = resolveAuthStatus(env);
+          const client = await createAuthenticatedClient(env);
+          const token = client.readTokenSet();
+          const tokenExpiresAt =
+            typeof token.expires_at === "number"
+              ? new Date(token.expires_at * 1000).toISOString()
+              : null;
+          const scope =
+            Array.isArray(token.scope)
+              ? token.scope.join(" ")
+              : (token.scope ?? null);
+
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(
+            JSON.stringify({
+              mode: status.authMode ?? "unknown",
+              credentialSource: status.credentialSource ?? "unknown",
+              tokenType: token.token_type ?? "unknown",
+              tokenExpiresAt: tokenExpiresAt ?? "unknown",
+              scope: scope ?? "unknown",
+            }),
+          );
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          response.writeHead(400, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ error: message }));
+          return;
+        }
       }
 
       if (request.method === "POST" && path === "/v1/invoke") {

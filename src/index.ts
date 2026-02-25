@@ -222,6 +222,87 @@ program
     console.log("xero: thin CLI wrapper around xero-node");
   });
 
+program
+  .command("doctor")
+  .description("Check direct/proxy chain and auth")
+  .action(async () => {
+    const proxyUrl = process.env.XERO_PROXY_URL?.trim();
+    if (!proxyUrl) {
+      await ensureRuntimeKeyringPassword(process.env);
+      const status = resolveAuthStatus(process.env);
+      const client = await createAuthenticatedClient(process.env);
+      const token = client.readTokenSet();
+      const tokenExpiresAt =
+        typeof token.expires_at === "number"
+          ? new Date(token.expires_at * 1000).toISOString()
+          : null;
+      const scope =
+        Array.isArray(token.scope)
+          ? token.scope.join(" ")
+          : (token.scope ?? null);
+      console.log("Doctor mode: direct");
+      console.log("Auth test successful.");
+      console.log(`  mode: ${status.authMode ?? "unknown"}`);
+      console.log(`  credential source: ${status.credentialSource ?? "unknown"}`);
+      console.log(`  token type: ${token.token_type ?? "unknown"}`);
+      console.log(`  token expires at: ${tokenExpiresAt ?? "unknown"}`);
+      console.log(`  scope: ${scope ?? "unknown"}`);
+      return;
+    }
+
+    const proxyBaseUrl = proxyUrl.replace(/\/+$/, "");
+    console.log("Doctor mode: proxy");
+    console.log(`  proxy url: ${proxyBaseUrl}`);
+
+    try {
+      const health = await fetch(`${proxyBaseUrl}/healthz`);
+      if (!health.ok) {
+        throw new Error(`health check failed (${health.status})`);
+      }
+      console.log("Proxy health check successful.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Proxy is unreachable: ${message}`);
+    }
+
+    const response = await fetch(`${proxyBaseUrl}/v1/doctor`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    const raw = await response.text();
+    let parsed: unknown = null;
+    try {
+      parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!response.ok) {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        "error" in parsed &&
+        typeof (parsed as { error?: unknown }).error === "string"
+      ) {
+        throw new Error(
+          `Proxy auth test failed: ${(parsed as { error: string }).error}`,
+        );
+      }
+      throw new Error(`Proxy auth test failed (${response.status}).`);
+    }
+
+    console.log("Proxy auth test successful.");
+    if (parsed === null && raw) {
+      console.log(raw);
+      return;
+    }
+
+    console.log(JSON.stringify(parsed, null, 2));
+  });
+
 const auth = program
   .command("auth")
   .description("Authentication commands");
@@ -260,28 +341,6 @@ auth
       console.log("No stored authentication file to remove.");
     }
     console.log(`Auth file: ${result.authFilePath}`);
-  });
-
-auth
-  .command("test")
-  .description("Test auth by requesting an access token")
-  .action(async () => {
-    await ensureRuntimeKeyringPassword(process.env);
-    const status = resolveAuthStatus(process.env);
-    const client = await createAuthenticatedClient(process.env);
-    const token = client.readTokenSet();
-    const tokenExpiresAt =
-      typeof token.expires_at === "number"
-        ? new Date(token.expires_at * 1000).toISOString()
-        : null;
-    const scope =
-      Array.isArray(token.scope) ? token.scope.join(" ") : (token.scope ?? null);
-    console.log("Auth test successful.");
-    console.log(`  mode: ${status.authMode ?? "unknown"}`);
-    console.log(`  credential source: ${status.credentialSource ?? "unknown"}`);
-    console.log(`  token type: ${token.token_type ?? "unknown"}`);
-    console.log(`  token expires at: ${tokenExpiresAt ?? "unknown"}`);
-    console.log(`  scope: ${scope ?? "unknown"}`);
   });
 
 auth

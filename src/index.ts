@@ -175,7 +175,18 @@ auth
   .description("Show current auth configuration status")
   .action(() => {
     const status = resolveAuthStatus(process.env);
-    console.log(JSON.stringify(status, null, 2));
+    console.log("Authentication status:");
+    console.log(`  configured: ${status.isConfigured ? "yes" : "no"}`);
+    console.log(`  mode: ${status.authMode ?? "none"}`);
+    console.log(`  credential source: ${status.credentialSource ?? "none"}`);
+    console.log(`  client id: ${status.hasClientId ? "present" : "missing"}`);
+    console.log(
+      `  client secret: ${status.hasClientSecret ? "present" : "missing"}`,
+    );
+    if (status.tokenExpiresAt) {
+      console.log(`  token expires at: ${status.tokenExpiresAt}`);
+    }
+    console.log(`  auth file: ${status.authFilePath}`);
   });
 
 auth
@@ -183,7 +194,12 @@ auth
   .description("Remove stored authentication file")
   .action(() => {
     const result = logoutAuth(process.env);
-    console.log(JSON.stringify(result, null, 2));
+    if (result.deleted) {
+      console.log("Removed stored authentication file.");
+    } else {
+      console.log("No stored authentication file to remove.");
+    }
+    console.log(`Auth file: ${result.authFilePath}`);
   });
 
 auth
@@ -194,18 +210,18 @@ auth
     const status = resolveAuthStatus(process.env);
     const client = await createAuthenticatedClient(process.env);
     const token = client.readTokenSet();
-    const result = {
-      ok: true,
-      mode: status.authMode,
-      credentialSource: status.credentialSource,
-      tokenType: token.token_type ?? null,
-      tokenExpiresAt:
-        typeof token.expires_at === "number"
-          ? new Date(token.expires_at * 1000).toISOString()
-          : null,
-      scope: token.scope ?? null,
-    };
-    console.log(JSON.stringify(result, null, 2));
+    const tokenExpiresAt =
+      typeof token.expires_at === "number"
+        ? new Date(token.expires_at * 1000).toISOString()
+        : null;
+    const scope =
+      Array.isArray(token.scope) ? token.scope.join(" ") : (token.scope ?? null);
+    console.log("Auth test successful.");
+    console.log(`  mode: ${status.authMode ?? "unknown"}`);
+    console.log(`  credential source: ${status.credentialSource ?? "unknown"}`);
+    console.log(`  token type: ${token.token_type ?? "unknown"}`);
+    console.log(`  token expires at: ${tokenExpiresAt ?? "unknown"}`);
+    console.log(`  scope: ${scope ?? "unknown"}`);
   });
 
 auth
@@ -255,17 +271,8 @@ auth
           process.env,
           keyringPassword,
         );
-        console.log(
-          JSON.stringify(
-            {
-              mode: "client_credentials",
-              credentialSource: "file",
-              authFilePath,
-            },
-            null,
-            2,
-          ),
-        );
+        console.log("Client credentials login complete.");
+        console.log(`Auth file: ${authFilePath}`);
         return;
       }
 

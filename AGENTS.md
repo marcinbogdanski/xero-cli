@@ -29,18 +29,34 @@
 - Prefer explicit error messages and fail-closed validation for CLI input.
 
 ## Implementation Simplicity Policy
-- Default to the shortest clean implementation that solves the actual requirement end-to-end.
-- Avoid introducing abstractions (extra classes, layers, wrappers) unless they clearly reduce total complexity.
-- Do not create tiny helpers used in one place; inline straightforward logic at call site.
-- Refactor existing code only when it makes the final code simpler; otherwise prefer minimal, local edits.
-- Keep data flow obvious: parse -> validate -> execute -> output, without indirection.
-- Keep tests focused on behavior and critical edge cases; avoid over-engineered test scaffolding.
+- Default to the shortest clean implementation that solves the requested behavior only.
+- Work in atomic increments: one small step, verify, then move to the next.
+- Avoid introducing abstractions (extra classes/layers/wrappers/protocol objects) unless there is repeated need in current scope.
+- Do not add new interfaces/types for one-off plumbing; prefer existing shapes and local object literals.
+- Prefer one canonical validation/execution path. Avoid duplicating full validation logic in multiple layers.
+- Client-side checks should stay lightweight (for obvious local issues only); keep authoritative validation in one place.
+- Inline straightforward logic. Extract a helper only when it clearly improves readability or is likely to be extended next.
+- Refactor only when it reduces total code or removes duplication. Do not refactor for style alone.
+- Keep data flow obvious: parse -> validate -> execute -> output.
+
+## Proxy/Invoke Extension Rules
+- Keep `src/invoke.ts` as the source of truth for invoke semantics and argument validation.
+- Keep proxy transport minimal: JSON over HTTP unless a stronger requirement is explicitly requested.
+- Prefer minimal payload contracts. Add new payload fields only when needed for current behavior.
+- For file handling in proxy mode: serialize only what is necessary, and avoid sending local file content unless required.
+- Preserve direct mode behavior unless the task explicitly asks to change it.
+
+## Error Handling
+- Default to fail-fast behavior with concise, explicit user-facing errors.
+- Avoid retries, fallback branches, recovery frameworks, and broad catch blocks unless explicitly requested.
+- Do not add defensive checks for hypothetical cases that are outside the current requirement.
 
 ## Testing Guidelines
 - Framework: Vitest (`vitest.config.ts` includes `tests/**/*.test.ts`).
 - Name test files as `*.test.ts` and write behavior-focused test names.
 - Add or update tests for auth changes, parameter parsing, and command behavior.
 - No hard coverage threshold is defined; prioritize regression protection for edge cases.
+- For iterative CLI work, prefer quick smoke verification of changed paths plus existing test suite; avoid adding test scaffolding unless required by the change.
 
 ## Commit & Pull Request Guidelines
 - Follow Conventional Commit prefixes used in history: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`.

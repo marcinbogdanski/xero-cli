@@ -124,6 +124,47 @@ xero auth logout
 
 Currently only `file` backend is supported. Data is stored under `~/.config/xero-cli`.
 
+## Proxy Mode (Invoke Delegation)
+
+Proxy mode lets a trusted machine keep Xero auth while an agent machine delegates invoke calls.
+
+Trusted machine:
+
+```bash
+xero auth login --mode oauth
+XERO_KEYRING_PASSWORD=your_keyring_password xero proxy
+```
+
+Proxy server defaults:
+
+- bind host: `0.0.0.0`
+- port: `8765`
+- routes:
+  - `GET /healthz`
+  - `POST /v1/invoke`
+
+Agent machine:
+
+```bash
+XERO_PROXY_URL=http://trusted-host:8765 xero invoke accounting getOrganisations
+```
+
+When `XERO_PROXY_URL` is set:
+
+- `xero invoke ...` is delegated through proxy
+- `xero auth ...` is disabled
+- `xero tenants ...` is disabled
+- `xero about` and help stay local
+
+Proxy-mode file behavior:
+
+- `.json` invoke arg values are read and parsed on client machine, then sent inline as JSON.
+- local file path values for non-`.json` args are sent as base64 file payloads and consumed as binary `Buffer` params on proxy.
+
+Security note:
+
+- proxy transport is plain HTTP JSON in current MVP (no TLS/auth hardening yet).
+
 ## Tenants
 
 List connected tenants from Xero `/connections`:

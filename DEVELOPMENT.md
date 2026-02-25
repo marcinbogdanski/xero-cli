@@ -1,6 +1,6 @@
 # Development Notes
 
-Last updated: 2026-02-22
+Last updated: 2026-02-25
 
 ## Purpose
 Thin CLI wrapper around `xero-node`, designed for terminal/agent usage with broad API coverage through a generic `invoke` command.
@@ -10,6 +10,7 @@ Thin CLI wrapper around `xero-node`, designed for terminal/agent usage with broa
   - `xero about`
   - `xero auth status`
   - `xero auth login`
+  - `xero auth scopes`
   - `xero auth test`
   - `xero auth logout`
   - `xero tenants list`
@@ -62,13 +63,3 @@ Validation behavior:
 - JSON fallback is syntactic validation only; there is no local schema validation against model fields.
 - For mutating endpoints, invalid-but-parseable payloads fail only at API time.
 - No dedicated dry-run mode yet.
-
-## Future Direction (Still Relevant)
-- Keep transport/auth behind a backend boundary so proxy/token-broker mode can be introduced later without CLI UX rewrite.
-
-## Session Resume Checklist
-1. Read this file.
-2. Regenerate manifest after SDK updates: `npm run manifest`.
-3. Re-run completeness report after parser changes.
-4. Run tests: `npm test`.
-5. Keep README examples aligned with actual parser behavior.

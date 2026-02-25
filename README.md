@@ -117,6 +117,7 @@ During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PAS
 ```bash
 xero auth status
 xero auth test
+xero auth logout
 ```
 
 ### Keyring Backend
@@ -167,7 +168,6 @@ Pass model payload params as inline JSON or a `.json` file path (no `@` prefix; 
 
 ```bash
 xero invoke accounting createAccount -- --account='{"code":"201","name":"Sales Test","type":"REVENUE"}'
-xero invoke accounting createAccount -- --account=resources/account.json
 ```
 
 Create a draft bill (`ACCPAY`) from JSON payload:

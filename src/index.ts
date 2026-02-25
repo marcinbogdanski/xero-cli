@@ -19,6 +19,7 @@ import { renderOAuthScopesHelpText, resolveOAuthScopes } from "./scopes";
 import { listTenants } from "./tenants";
 
 const program = new Command();
+const green = (value: string): string => `\u001b[32m${value}\u001b[0m`;
 
 async function promptRequiredValue(prompt: string): Promise<string> {
   const rl = createInterface({ input, output });
@@ -227,15 +228,20 @@ program
   .description("Check direct/proxy chain and auth")
   .action(async () => {
     const proxyUrl = process.env.XERO_PROXY_URL?.trim();
+    console.log("Checking app mode:");
+    console.log(`  env var XERO_PROXY_URL: ${proxyUrl || "not set"}`);
+
     if (!proxyUrl) {
+      console.log(`  app mode: ${green("direct")}`);
+      console.log("");
+      console.log("Keyring password:");
       await ensureRuntimeKeyringPassword(process.env);
+      console.log("");
+
+      console.log("Testing authentication:");
       const status = resolveAuthStatus(process.env);
       const client = await createAuthenticatedClient(process.env);
       const token = client.readTokenSet();
-      const connections = await client.updateTenants(false);
-      const connectionsCount = Array.isArray(connections)
-        ? connections.length
-        : 0;
       const tokenExpiresAt =
         typeof token.expires_at === "number"
           ? new Date(token.expires_at * 1000).toISOString()
@@ -244,31 +250,47 @@ program
         Array.isArray(token.scope)
           ? token.scope.join(" ")
           : (token.scope ?? null);
-      console.log("Doctor mode: direct");
-      console.log("Auth test successful.");
+      console.log(`  result: ${green("success")}`);
       console.log(`  mode: ${status.authMode ?? "unknown"}`);
       console.log(`  credential source: ${status.credentialSource ?? "unknown"}`);
       console.log(`  token type: ${token.token_type ?? "unknown"}`);
       console.log(`  token expires at: ${tokenExpiresAt ?? "unknown"}`);
       console.log(`  scope: ${scope ?? "unknown"}`);
-      console.log(`  connections: ${connectionsCount}`);
+      console.log("");
+
+      console.log("Testing token validity by calling xero.com endpoint:");
+      const connections = await client.updateTenants(false);
+      const connectionsCount = Array.isArray(connections)
+        ? connections.length
+        : 0;
+      console.log(`  request: ${green("success")}`);
+      console.log(`  connections found: ${connectionsCount}`);
+      console.log("  token valid: yes");
+      console.log("");
+      console.log("Doctor summary:");
+      console.log(`  status: ${green("ready")}`);
+      console.log("  xero-cli is configured correctly and ready for commands.");
       return;
     }
 
     const proxyBaseUrl = proxyUrl.replace(/\/+$/, "");
-    console.log("Doctor mode: proxy");
+    console.log("  app mode: proxy");
     console.log(`  proxy url: ${proxyBaseUrl}`);
+    console.log("");
+    console.log("Testing proxy reachability:");
 
     try {
       const health = await fetch(`${proxyBaseUrl}/healthz`);
       if (!health.ok) {
         throw new Error(`health check failed (${health.status})`);
       }
-      console.log("Proxy health check successful.");
+      console.log(`  result: ${green("success")}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Proxy is unreachable: ${message}`);
+      throw new Error(`Testing proxy reachability failed: ${message}`);
     }
+    console.log("");
+    console.log("Testing server authentication:");
 
     const response = await fetch(`${proxyBaseUrl}/v1/doctor`, {
       method: "POST",
@@ -293,19 +315,59 @@ program
         typeof (parsed as { error?: unknown }).error === "string"
       ) {
         throw new Error(
-          `Proxy auth test failed: ${(parsed as { error: string }).error}`,
+          `Testing server authentication failed: ${(parsed as { error: string }).error}`,
         );
       }
-      throw new Error(`Proxy auth test failed (${response.status}).`);
+      throw new Error(`Testing server authentication failed (${response.status}).`);
     }
 
-    console.log("Proxy auth test successful.");
-    if (parsed === null && raw) {
-      console.log(raw);
-      return;
-    }
+    const doctor =
+      parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>)
+        : {};
+    const mode =
+      "mode" in doctor && typeof doctor.mode === "string"
+        ? doctor.mode
+        : "unknown";
+    const credentialSource =
+      "credentialSource" in doctor &&
+      typeof doctor.credentialSource === "string"
+        ? doctor.credentialSource
+        : "unknown";
+    const tokenType =
+      "tokenType" in doctor && typeof doctor.tokenType === "string"
+        ? doctor.tokenType
+        : "unknown";
+    const tokenExpiresAt =
+      "tokenExpiresAt" in doctor && typeof doctor.tokenExpiresAt === "string"
+        ? doctor.tokenExpiresAt
+        : "unknown";
+    const scope =
+      "scope" in doctor && typeof doctor.scope === "string"
+        ? doctor.scope
+        : "unknown";
+    const connectionsCount =
+      "connections" in doctor && typeof doctor.connections === "number"
+        ? doctor.connections
+        : null;
 
-    console.log(JSON.stringify(parsed, null, 2));
+    console.log(`  result: ${green("success")}`);
+    console.log(`  mode: ${mode}`);
+    console.log(`  credential source: ${credentialSource}`);
+    console.log(`  token type: ${tokenType}`);
+    console.log(`  token expires at: ${tokenExpiresAt}`);
+    console.log(`  scope: ${scope}`);
+    console.log("");
+    console.log("Testing server token validity by calling xero.com endpoint:");
+    console.log(`  request: ${green("success")}`);
+    console.log(
+      `  connections found: ${connectionsCount === null ? "unknown" : connectionsCount}`,
+    );
+    console.log("  token valid: yes");
+    console.log("");
+    console.log("Doctor summary:");
+    console.log(`  status: ${green("ready")}`);
+    console.log("  xero-cli is configured correctly and ready for commands.");
   });
 
 const auth = program

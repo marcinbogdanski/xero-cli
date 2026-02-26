@@ -84,6 +84,8 @@ export interface InvokeResult {
   body: unknown;
 }
 
+type MethodPolicy = "allow" | "block";
+
 function resolveTenantId(
   env: NodeJS.ProcessEnv,
   explicitTenantId?: string,
@@ -445,6 +447,87 @@ function resolveInvokeCall(
   return { mapping, args };
 }
 
+function resolveConfigHome(env: NodeJS.ProcessEnv): string | undefined {
+  const xdg = env.XDG_CONFIG_HOME?.trim();
+  if (xdg) {
+    return xdg;
+  }
+
+  const home = env.HOME?.trim();
+  if (!home) {
+    return undefined;
+  }
+
+  return path.join(home, ".config");
+}
+
+function resolveMethodPolicy(
+  env: NodeJS.ProcessEnv,
+  api: string,
+  method: string,
+): MethodPolicy {
+  const fromEnv = env.XERO_POLICY_PATH?.trim();
+  let policyPath = fromEnv;
+  if (!policyPath) {
+    const configHome = resolveConfigHome(env);
+    if (configHome) {
+      policyPath = path.join(configHome, "xero-cli", "policy.json");
+    }
+  }
+
+  if (!policyPath || !existsSync(policyPath)) {
+    return "block";
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(policyPath, "utf8"));
+  } catch {
+    throw new Error(`Failed to parse policy file "${policyPath}".`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Policy file "${policyPath}" must contain an object.`);
+  }
+
+  const value = parsed as {
+    default?: unknown;
+    methods?: unknown;
+  };
+
+  let defaultPolicy: MethodPolicy = "block";
+  if (value.default !== undefined) {
+    if (value.default !== "allow" && value.default !== "block") {
+      throw new Error(`Policy file "${policyPath}" has invalid "default" value.`);
+    }
+    defaultPolicy = value.default;
+  }
+
+  if (value.methods === undefined) {
+    return defaultPolicy;
+  }
+
+  if (
+    typeof value.methods !== "object" ||
+    value.methods === null ||
+    Array.isArray(value.methods)
+  ) {
+    throw new Error(`Policy file "${policyPath}" field "methods" must be object.`);
+  }
+
+  const key = `${api}.${method}`;
+  const methodPolicy = (value.methods as Record<string, unknown>)[key];
+  if (methodPolicy === undefined) {
+    return defaultPolicy;
+  }
+
+  if (methodPolicy !== "allow" && methodPolicy !== "block") {
+    throw new Error(`Policy file "${policyPath}" has invalid value for "${key}".`);
+  }
+
+  return methodPolicy;
+}
+
 function appendAuditLine(
   env: NodeJS.ProcessEnv,
   event: Record<string, unknown>,
@@ -453,12 +536,10 @@ function appendAuditLine(
     const fromEnv = env.XERO_AUDIT_LOG_PATH?.trim();
     let filePath = fromEnv;
     if (!filePath) {
-      const xdg = env.XDG_CONFIG_HOME?.trim();
-      const home = env.HOME?.trim();
-      if (!xdg && !home) {
+      const configHome = resolveConfigHome(env);
+      if (!configHome) {
         return;
       }
-      const configHome = xdg || path.join(home as string, ".config");
       filePath = path.join(configHome, "xero-cli", "audit.jsonl");
     }
 
@@ -477,6 +558,7 @@ export async function invokeXeroMethod(
   const fullAudit = ["1", "true", "yes"].includes(
     (env.XERO_AUDIT_LOG_FULL ?? "").trim().toLowerCase(),
   );
+  let policyForAudit = "unknown";
 
   const auditBase = {
     ts: new Date().toISOString(),
@@ -500,6 +582,16 @@ export async function invokeXeroMethod(
   };
 
   try {
+    const mapping = resolveApiMapping(input.api);
+    if (!mapping) {
+      throw new Error(`Unknown API "${input.api}".`);
+    }
+
+    policyForAudit = resolveMethodPolicy(env, mapping.alias, input.method);
+    if (policyForAudit === "block") {
+      throw new Error(`Method "${mapping.alias}.${input.method}" is blocked by policy.`);
+    }
+
     const resolved = resolveInvokeCall(input, env);
 
     const client = await createAuthenticatedClient(env);
@@ -521,6 +613,7 @@ export async function invokeXeroMethod(
     const printable = toPrintableResult(result);
     appendAuditLine(env, {
       ...auditBase,
+      policy: policyForAudit,
       status: "success",
       durationMs: Date.now() - startedAt,
       responseStatus: printable.status,
@@ -530,6 +623,7 @@ export async function invokeXeroMethod(
     const message = error instanceof Error ? error.message : String(error);
     appendAuditLine(env, {
       ...auditBase,
+      policy: policyForAudit,
       status: "error",
       durationMs: Date.now() - startedAt,
       error: message,

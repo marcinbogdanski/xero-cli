@@ -189,6 +189,12 @@ xero policy init --profile read-only
 xero policy init --profile read-ask-write
 ```
 
+List effective policy for every supported method:
+
+```bash
+xero policy list
+```
+
 Profiles:
 
 - `block-all`: every method is `block`
@@ -213,6 +219,7 @@ Rules:
 - if method is missing in `methods`, methods starting with `get` are allowed, all others are blocked
 - valid values are `allow`, `ask`, `block`
 - `ask` prompts on interactive TTY; in non-interactive runs it fails closed
+- `xero policy list` shows effective policy per method and policy source (`policy_file` or `built_in_default`)
 
 Policy `ask` keeps a human in the loop: the proxy operator must explicitly approve matching invokes before they are sent to Xero.
 

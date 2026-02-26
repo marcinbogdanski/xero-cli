@@ -29,6 +29,7 @@ const program = new Command();
 const green = (value: string): string => `\u001b[32m${value}\u001b[0m`;
 
 const POLICY_PROFILE_VALUES = ["block-all", "read-only", "read-ask-write"] as const;
+type PolicyValue = "allow" | "ask" | "block";
 
 function resolveConfigHome(env: NodeJS.ProcessEnv): string {
   const xdg = env.XDG_CONFIG_HOME?.trim();
@@ -95,6 +96,59 @@ function resolveManifestMethodKeys(): string[] {
 
   methodKeys.sort();
   return methodKeys;
+}
+
+function resolvePolicyMethodOverrides(env: NodeJS.ProcessEnv): {
+  policyPath: string;
+  policyFileExists: boolean;
+  methods: Record<string, PolicyValue>;
+} {
+  const policyPath = resolvePolicyPath(env);
+  if (!existsSync(policyPath)) {
+    return {
+      policyPath,
+      policyFileExists: false,
+      methods: {},
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(policyPath, "utf8"));
+  } catch {
+    throw new Error(`Failed to parse policy file "${policyPath}".`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Policy file "${policyPath}" must contain an object.`);
+  }
+
+  const value = parsed as { methods?: unknown };
+  if (
+    typeof value.methods !== "object" ||
+    value.methods === null ||
+    Array.isArray(value.methods)
+  ) {
+    throw new Error(`Policy file "${policyPath}" field "methods" must be object.`);
+  }
+
+  const methods: Record<string, PolicyValue> = {};
+  for (const [methodKey, methodPolicy] of Object.entries(value.methods)) {
+    if (
+      methodPolicy !== "allow" &&
+      methodPolicy !== "ask" &&
+      methodPolicy !== "block"
+    ) {
+      throw new Error(`Policy file "${policyPath}" has invalid value for "${methodKey}".`);
+    }
+    methods[methodKey] = methodPolicy;
+  }
+
+  return {
+    policyPath,
+    policyFileExists: true,
+    methods,
+  };
 }
 
 async function promptRequiredValue(prompt: string): Promise<string> {
@@ -688,6 +742,62 @@ policy
     console.log(`  allow: ${allowCount}`);
     console.log(`  ask: ${askCount}`);
     console.log(`  block: ${blockCount}`);
+  });
+
+policy
+  .command("list")
+  .description("List all invoke methods with effective policy and source")
+  .action(() => {
+    const methods = resolveManifestMethodKeys();
+    const policy = resolvePolicyMethodOverrides(process.env);
+    const items = methods.map((method) => {
+      const fromFile = policy.methods[method];
+      if (fromFile) {
+        return {
+          method,
+          policy: fromFile as PolicyValue,
+          source: "policy_file",
+        };
+      }
+
+      const methodName = method.slice(method.lastIndexOf(".") + 1);
+      return {
+        method,
+        policy: methodName.startsWith("get") ? "allow" : "block",
+        source: "built_in_default",
+      };
+    });
+
+    console.log(`policy path: ${policy.policyPath}`);
+    console.log(`policy file exists: ${policy.policyFileExists ? "yes" : "no"}`);
+    console.log("");
+    const policyWidth = Math.max(
+      "policy".length,
+      ...items.map((item) => item.policy.length),
+    );
+    const methodWidth = Math.max(
+      "method".length,
+      ...items.map((item) => item.method.length),
+    );
+    const sourceWidth = Math.max(
+      "source".length,
+      ...items.map((item) => item.source.length),
+    );
+
+    const header = `${"policy".padEnd(policyWidth)} | ${"method".padEnd(methodWidth)} | ${"source".padEnd(sourceWidth)}`;
+    console.log(header);
+    console.log("-".repeat(header.length));
+    for (const item of items) {
+      const coloredPolicy =
+        item.policy === "allow"
+          ? `\u001b[32m${item.policy.padEnd(policyWidth)}\u001b[0m`
+          : item.policy === "block"
+            ? `\u001b[31m${item.policy.padEnd(policyWidth)}\u001b[0m`
+            : `\u001b[33m${item.policy.padEnd(policyWidth)}\u001b[0m`;
+      console.log(
+        `${coloredPolicy} | ${item.method.padEnd(methodWidth)} | ${item.source.padEnd(sourceWidth)}`,
+      );
+    }
   });
 
 program

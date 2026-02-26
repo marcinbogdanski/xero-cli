@@ -481,10 +481,16 @@ function resolveMethodPolicy(
   env: NodeJS.ProcessEnv,
   methodKey: string,
 ): { policy: MethodPolicy; hasEntry: boolean; policyPath?: string } {
+  const methodName = methodKey.includes(".")
+    ? methodKey.slice(methodKey.lastIndexOf(".") + 1)
+    : methodKey;
+  const fallbackPolicy: MethodPolicy = methodName.startsWith("get")
+    ? "allow"
+    : "block";
   const policyPath = resolvePolicyFilePath(env);
 
   if (!policyPath || !existsSync(policyPath)) {
-    return { policy: "block", hasEntry: false, policyPath };
+    return { policy: fallbackPolicy, hasEntry: false, policyPath };
   }
 
   let parsed: unknown;
@@ -510,7 +516,7 @@ function resolveMethodPolicy(
 
   const methodPolicy = (value.methods as Record<string, unknown>)[methodKey];
   if (methodPolicy === undefined) {
-    return { policy: "block", hasEntry: false, policyPath };
+    return { policy: fallbackPolicy, hasEntry: false, policyPath };
   }
 
   if (
@@ -612,11 +618,11 @@ export async function invokeXeroMethod(
       if (!policy.hasEntry) {
         if (policy.policyPath) {
           throw new Error(
-            `Method "${methodKey}" is blocked because it is not listed in policy "${policy.policyPath}". Add it and set allow/ask/block.`,
+            `Method "${methodKey}" is blocked by default policy (method is not listed and does not start with "get"). Add it to "${policy.policyPath}" and set allow/ask/block.`,
           );
         }
         throw new Error(
-          `Method "${methodKey}" is blocked because it is not listed in policy. Set HOME/XDG_CONFIG_HOME or XERO_POLICY_PATH.`,
+          `Method "${methodKey}" is blocked by default policy (method is not listed and does not start with "get"). Set HOME/XDG_CONFIG_HOME or XERO_POLICY_PATH, then add it and set allow/ask/block.`,
         );
       }
       throw new Error(`Method "${methodKey}" is blocked by policy.`);

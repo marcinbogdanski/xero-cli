@@ -209,7 +209,8 @@ Policy file format:
 
 Rules:
 
-- if method is missing in `methods`, invoke is blocked
+- if policy file is missing, methods starting with `get` are allowed, all others are blocked
+- if method is missing in `methods`, methods starting with `get` are allowed, all others are blocked
 - valid values are `allow`, `ask`, `block`
 - `ask` prompts on interactive TTY; in non-interactive runs it fails closed
 
@@ -235,7 +236,7 @@ xero tenants list
 
 ## Invoke
 
-Before invoking methods, initialize policy:
+To keep strict control, initialize policy first:
 
 ```bash
 xero policy init --profile read-only

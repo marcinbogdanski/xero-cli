@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
@@ -20,6 +27,75 @@ import { listTenants } from "./tenants";
 
 const program = new Command();
 const green = (value: string): string => `\u001b[32m${value}\u001b[0m`;
+
+const POLICY_PROFILE_VALUES = ["block-all", "read-only", "read-ask-write"] as const;
+
+function resolveConfigHome(env: NodeJS.ProcessEnv): string {
+  const xdg = env.XDG_CONFIG_HOME?.trim();
+  if (xdg) {
+    return xdg;
+  }
+
+  const home = env.HOME?.trim();
+  if (!home) {
+    throw new Error("Cannot resolve config directory. Set HOME or XDG_CONFIG_HOME.");
+  }
+
+  return path.join(home, ".config");
+}
+
+function resolvePolicyPath(env: NodeJS.ProcessEnv): string {
+  const fromEnv = env.XERO_POLICY_PATH?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  return path.join(resolveConfigHome(env), "xero-cli", "policy.json");
+}
+
+function resolveManifestMethodKeys(): string[] {
+  const manifestPath = path.resolve(__dirname, "../resources/xero-api-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    apis: Array<{
+      name: string;
+      methods: Array<{
+        name: string;
+        signatureFound: boolean;
+      }>;
+    }>;
+  };
+
+  const aliases: Record<string, string> = {
+    accountingApi: "accounting",
+    assetApi: "asset",
+    filesApi: "files",
+    projectApi: "project",
+    payrollAUApi: "payroll-au",
+    payrollNZApi: "payroll-nz",
+    payrollUKApi: "payroll-uk",
+    bankFeedsApi: "bankfeeds",
+    appStoreApi: "appstore",
+    financeApi: "finance",
+  };
+
+  const methodKeys: string[] = [];
+  for (const api of manifest.apis) {
+    const alias = aliases[api.name];
+    if (!alias) {
+      continue;
+    }
+
+    for (const method of api.methods) {
+      if (!method.signatureFound) {
+        continue;
+      }
+      methodKeys.push(`${alias}.${method.name}`);
+    }
+  }
+
+  methodKeys.sort();
+  return methodKeys;
+}
 
 async function promptRequiredValue(prompt: string): Promise<string> {
   const rl = createInterface({ input, output });
@@ -549,6 +625,69 @@ tenants
     await ensureRuntimeKeyringPassword(process.env);
     const results = await listTenants(process.env);
     console.log(JSON.stringify(results, null, 2));
+  });
+
+const policy = program
+  .command("policy")
+  .description("Policy commands");
+
+policy.action(() => {
+  policy.outputHelp();
+});
+
+policy
+  .command("init")
+  .description("Initialize policy.json from invoke manifest")
+  .requiredOption(
+    "--profile <profile>",
+    `Policy profile (${POLICY_PROFILE_VALUES.join(", ")})`,
+  )
+  .action((options: { profile: string }) => {
+    const profile = options.profile.trim().toLowerCase();
+    if (!POLICY_PROFILE_VALUES.includes(profile as (typeof POLICY_PROFILE_VALUES)[number])) {
+      throw new Error(
+        `Unsupported policy profile "${options.profile}". Supported: ${POLICY_PROFILE_VALUES.join(", ")}.`,
+      );
+    }
+
+    const methods = resolveManifestMethodKeys();
+    const values: Record<string, "allow" | "ask" | "block"> = {};
+
+    for (const methodKey of methods) {
+      const methodName = methodKey.split(".")[1];
+      const isReadOnly = methodName.startsWith("get");
+
+      if (profile === "block-all") {
+        values[methodKey] = "block";
+        continue;
+      }
+
+      if (profile === "read-only") {
+        values[methodKey] = isReadOnly ? "allow" : "block";
+        continue;
+      }
+
+      values[methodKey] = isReadOnly ? "allow" : "ask";
+    }
+
+    const policyPath = resolvePolicyPath(process.env);
+    mkdirSync(path.dirname(policyPath), { recursive: true });
+    writeFileSync(
+      policyPath,
+      `${JSON.stringify({ methods: values }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const allowCount = Object.values(values).filter((item) => item === "allow").length;
+    const askCount = Object.values(values).filter((item) => item === "ask").length;
+    const blockCount = Object.values(values).filter((item) => item === "block").length;
+
+    console.log(`Wrote policy file: ${policyPath}`);
+    console.log(`  profile: ${profile}`);
+    console.log(`  methods: ${methods.length}`);
+    console.log(`  allow: ${allowCount}`);
+    console.log(`  ask: ${askCount}`);
+    console.log(`  block: ${blockCount}`);
   });
 
 program

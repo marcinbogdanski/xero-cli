@@ -6,6 +6,8 @@ import {
   statSync,
 } from "node:fs";
 import path from "node:path";
+import { stdin as input, stdout as output } from "node:process";
+import { createInterface } from "node:readline/promises";
 import { XeroClient } from "xero-node";
 import { createAuthenticatedClient } from "./client";
 
@@ -84,7 +86,7 @@ export interface InvokeResult {
   body: unknown;
 }
 
-type MethodPolicy = "allow" | "block";
+type MethodPolicy = "allow" | "ask" | "block";
 
 function resolveTenantId(
   env: NodeJS.ProcessEnv,
@@ -461,22 +463,28 @@ function resolveConfigHome(env: NodeJS.ProcessEnv): string | undefined {
   return path.join(home, ".config");
 }
 
-function resolveMethodPolicy(
-  env: NodeJS.ProcessEnv,
-  api: string,
-  method: string,
-): MethodPolicy {
+function resolvePolicyFilePath(env: NodeJS.ProcessEnv): string | undefined {
   const fromEnv = env.XERO_POLICY_PATH?.trim();
-  let policyPath = fromEnv;
-  if (!policyPath) {
-    const configHome = resolveConfigHome(env);
-    if (configHome) {
-      policyPath = path.join(configHome, "xero-cli", "policy.json");
-    }
+  if (fromEnv) {
+    return fromEnv;
   }
 
+  const configHome = resolveConfigHome(env);
+  if (!configHome) {
+    return undefined;
+  }
+
+  return path.join(configHome, "xero-cli", "policy.json");
+}
+
+function resolveMethodPolicy(
+  env: NodeJS.ProcessEnv,
+  methodKey: string,
+): { policy: MethodPolicy; hasEntry: boolean; policyPath?: string } {
+  const policyPath = resolvePolicyFilePath(env);
+
   if (!policyPath || !existsSync(policyPath)) {
-    return "block";
+    return { policy: "block", hasEntry: false, policyPath };
   }
 
   let parsed: unknown;
@@ -490,22 +498,7 @@ function resolveMethodPolicy(
     throw new Error(`Policy file "${policyPath}" must contain an object.`);
   }
 
-  const value = parsed as {
-    default?: unknown;
-    methods?: unknown;
-  };
-
-  let defaultPolicy: MethodPolicy = "block";
-  if (value.default !== undefined) {
-    if (value.default !== "allow" && value.default !== "block") {
-      throw new Error(`Policy file "${policyPath}" has invalid "default" value.`);
-    }
-    defaultPolicy = value.default;
-  }
-
-  if (value.methods === undefined) {
-    return defaultPolicy;
-  }
+  const value = parsed as { methods?: unknown };
 
   if (
     typeof value.methods !== "object" ||
@@ -515,17 +508,42 @@ function resolveMethodPolicy(
     throw new Error(`Policy file "${policyPath}" field "methods" must be object.`);
   }
 
-  const key = `${api}.${method}`;
-  const methodPolicy = (value.methods as Record<string, unknown>)[key];
+  const methodPolicy = (value.methods as Record<string, unknown>)[methodKey];
   if (methodPolicy === undefined) {
-    return defaultPolicy;
+    return { policy: "block", hasEntry: false, policyPath };
   }
 
-  if (methodPolicy !== "allow" && methodPolicy !== "block") {
-    throw new Error(`Policy file "${policyPath}" has invalid value for "${key}".`);
+  if (
+    methodPolicy !== "allow" &&
+    methodPolicy !== "ask" &&
+    methodPolicy !== "block"
+  ) {
+    throw new Error(`Policy file "${policyPath}" has invalid value for "${methodKey}".`);
   }
 
-  return methodPolicy;
+  return { policy: methodPolicy, hasEntry: true, policyPath };
+}
+
+async function promptAskPolicyDecision(methodKey: string): Promise<boolean> {
+  const ttyInput = input as NodeJS.ReadStream & { isTTY?: boolean };
+  const ttyOutput = output as NodeJS.WriteStream & { isTTY?: boolean };
+  if (!ttyInput.isTTY || !ttyOutput.isTTY) {
+    throw new Error(
+      `Method "${methodKey}" requires approval but no interactive terminal is available. Set this method policy to allow or block for non-interactive runs.`,
+    );
+  }
+
+  const rl = createInterface({ input, output });
+  try {
+    const answer = (
+      await rl.question(`Policy ask: allow "${methodKey}"? [y/N] `)
+    )
+      .trim()
+      .toLowerCase();
+    return answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
 }
 
 function appendAuditLine(
@@ -558,7 +576,7 @@ export async function invokeXeroMethod(
   const fullAudit = ["1", "true", "yes"].includes(
     (env.XERO_AUDIT_LOG_FULL ?? "").trim().toLowerCase(),
   );
-  let policyForAudit = "unknown";
+  let policyForAudit: MethodPolicy | "unknown" = "unknown";
 
   const auditBase = {
     ts: new Date().toISOString(),
@@ -587,9 +605,28 @@ export async function invokeXeroMethod(
       throw new Error(`Unknown API "${input.api}".`);
     }
 
-    policyForAudit = resolveMethodPolicy(env, mapping.alias, input.method);
-    if (policyForAudit === "block") {
-      throw new Error(`Method "${mapping.alias}.${input.method}" is blocked by policy.`);
+    const methodKey = `${mapping.alias}.${input.method}`;
+    const policy = resolveMethodPolicy(env, methodKey);
+    policyForAudit = policy.policy;
+    if (policy.policy === "block") {
+      if (!policy.hasEntry) {
+        if (policy.policyPath) {
+          throw new Error(
+            `Method "${methodKey}" is blocked because it is not listed in policy "${policy.policyPath}". Add it and set allow/ask/block.`,
+          );
+        }
+        throw new Error(
+          `Method "${methodKey}" is blocked because it is not listed in policy. Set HOME/XDG_CONFIG_HOME or XERO_POLICY_PATH.`,
+        );
+      }
+      throw new Error(`Method "${methodKey}" is blocked by policy.`);
+    }
+
+    if (policy.policy === "ask") {
+      const approved = await promptAskPolicyDecision(methodKey);
+      if (!approved) {
+        throw new Error(`Method "${methodKey}" was denied by user.`);
+      }
     }
 
     const resolved = resolveInvokeCall(input, env);

@@ -302,3 +302,11 @@ List files sorted by size descending (string-literal union params):
 ```bash
 xero invoke files getFiles -- --sort=Size --direction=DESC
 ```
+
+Simple list/add/remove chain with Files folders:
+
+```bash
+xero invoke files getFolders
+xero invoke files createFolder -- --folder='{"name":"cli-test-folder"}'
+xero invoke files deleteFolder -- --folderId=<folder-id-from-create-response>
+```

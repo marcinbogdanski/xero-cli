@@ -215,7 +215,7 @@ Policy file format:
 
 Rules:
 
-- if policy file is missing, methods starting with `get` are allowed, all others are blocked
+- if policy file is missing, all methods are allowed
 - if method is missing in `methods`, methods starting with `get` are allowed, all others are blocked
 - valid values are `allow`, `ask`, `block`
 - `ask` prompts on interactive TTY; in non-interactive runs it fails closed

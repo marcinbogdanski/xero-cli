@@ -799,7 +799,11 @@ policy
       const methodName = method.slice(method.lastIndexOf(".") + 1);
       return {
         method,
-        policy: methodName.startsWith("get") ? "allow" : "block",
+        policy: !policy.policyFileExists
+          ? "allow"
+          : methodName.startsWith("get")
+            ? "allow"
+            : "block",
         source: "built_in_default",
       };
     });

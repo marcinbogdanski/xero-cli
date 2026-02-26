@@ -71,7 +71,7 @@ Validation behavior:
 - Add targeted tests for policy + audit behavior:
   - `policy init` profiles and generated file shape
   - `policy list` effective policy/source output
-  - fallback behavior (`get*` allow, non-`get*` block)
+  - fallback behavior (no policy file => allow all; missing method entry => `get*` allow, non-`get*` block)
   - `ask` behavior in TTY vs non-TTY runs
   - audit JSONL fields and full-mode behavior
 - Harden proxy transport:

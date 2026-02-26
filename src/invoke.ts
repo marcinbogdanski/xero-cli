@@ -485,12 +485,17 @@ function resolvePolicyFilePath(env: NodeJS.ProcessEnv): string | undefined {
 
 function resolvePolicyMethodsFromFile(
   env: NodeJS.ProcessEnv,
-): { methods: Record<string, MethodPolicy>; policyPath?: string } {
+): {
+  methods: Record<string, MethodPolicy>;
+  policyPath?: string;
+  policyFileExists: boolean;
+} {
   const policyPath = resolvePolicyFilePath(env);
   if (!policyPath || !existsSync(policyPath)) {
     return {
       methods: {},
       policyPath,
+      policyFileExists: false,
     };
   }
 
@@ -530,6 +535,7 @@ function resolvePolicyMethodsFromFile(
   return {
     methods,
     policyPath,
+    policyFileExists: true,
   };
 }
 
@@ -540,10 +546,12 @@ function resolveMethodPolicy(
   const methodName = methodKey.includes(".")
     ? methodKey.slice(methodKey.lastIndexOf(".") + 1)
     : methodKey;
-  const fallbackPolicy: MethodPolicy = methodName.startsWith("get")
-    ? "allow"
-    : "block";
   const policyFile = resolvePolicyMethodsFromFile(env);
+  const fallbackPolicy: MethodPolicy = !policyFile.policyFileExists
+    ? "allow"
+    : methodName.startsWith("get")
+      ? "allow"
+      : "block";
   const methodPolicy = policyFile.methods[methodKey];
   if (methodPolicy === undefined) {
     return { policy: fallbackPolicy, hasEntry: false, policyPath: policyFile.policyPath };
@@ -580,7 +588,11 @@ export function resolvePolicySummary(
       const methodKey = `${alias}.${method.name}`;
       const policy =
         policyFile.methods[methodKey] ??
-        (method.name.startsWith("get") ? "allow" : "block");
+        (!policyFile.policyFileExists
+          ? "allow"
+          : method.name.startsWith("get")
+            ? "allow"
+            : "block");
       summary[policy] += 1;
     }
   }
@@ -588,7 +600,10 @@ export function resolvePolicySummary(
   return summary;
 }
 
-async function promptAskPolicyDecision(methodKey: string): Promise<boolean> {
+async function promptAskPolicyDecision(
+  methodKey: string,
+  invokeInput: InvokeInput,
+): Promise<boolean> {
   const ttyInput = input as NodeJS.ReadStream & { isTTY?: boolean };
   const ttyOutput = output as NodeJS.WriteStream & { isTTY?: boolean };
   if (!ttyInput.isTTY || !ttyOutput.isTTY) {
@@ -599,6 +614,18 @@ async function promptAskPolicyDecision(methodKey: string): Promise<boolean> {
 
   const rl = createInterface({ input, output });
   try {
+    const requestPreview = {
+      api: invokeInput.api,
+      method: invokeInput.method,
+      tenantId: invokeInput.tenantId ?? null,
+      rawParams: invokeInput.rawParams ?? [],
+      uploadedFileParams: invokeInput.uploadedFiles
+        ? Object.keys(invokeInput.uploadedFiles)
+        : [],
+    };
+    console.log("Policy ask request:");
+    console.log(JSON.stringify(requestPreview, null, 2));
+
     const answer = (
       await rl.question(`Policy ask: allow "${methodKey}"? [y/N] `)
     )
@@ -687,7 +714,7 @@ export async function invokeXeroMethod(
     }
 
     if (policy.policy === "ask") {
-      const approved = await promptAskPolicyDecision(methodKey);
+      const approved = await promptAskPolicyDecision(methodKey, input);
       if (!approved) {
         throw new Error(`Method "${methodKey}" was denied by user.`);
       }

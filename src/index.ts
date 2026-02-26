@@ -640,6 +640,7 @@ program
           method,
           tenantId: options.tenantId,
           rawParams,
+          auditMode: "direct",
         },
         process.env,
       );

@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
 import { XeroClient } from "xero-node";
 import { createAuthenticatedClient } from "./client";
@@ -70,6 +76,7 @@ export interface InvokeInput {
   tenantId?: string;
   rawParams?: string[];
   uploadedFiles?: Record<string, string>;
+  auditMode?: "direct" | "proxy_server";
 }
 
 export interface InvokeResult {
@@ -438,27 +445,95 @@ function resolveInvokeCall(
   return { mapping, args };
 }
 
+function appendAuditLine(
+  env: NodeJS.ProcessEnv,
+  event: Record<string, unknown>,
+): void {
+  try {
+    const fromEnv = env.XERO_AUDIT_LOG_PATH?.trim();
+    let filePath = fromEnv;
+    if (!filePath) {
+      const xdg = env.XDG_CONFIG_HOME?.trim();
+      const home = env.HOME?.trim();
+      if (!xdg && !home) {
+        return;
+      }
+      const configHome = xdg || path.join(home as string, ".config");
+      filePath = path.join(configHome, "xero-cli", "audit.jsonl");
+    }
+
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    appendFileSync(filePath, `${JSON.stringify(event)}\n`, "utf8");
+  } catch {
+    // best effort
+  }
+}
+
 export async function invokeXeroMethod(
   input: InvokeInput,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<InvokeResult> {
-  const resolved = resolveInvokeCall(input, env);
+  const startedAt = Date.now();
+  const fullAudit = ["1", "true", "yes"].includes(
+    (env.XERO_AUDIT_LOG_FULL ?? "").trim().toLowerCase(),
+  );
 
-  const client = await createAuthenticatedClient(env);
-  const apiClient = (client as XeroClient)[resolved.mapping.property];
-  if (!apiClient || typeof apiClient !== "object") {
-    throw new Error(`API client "${resolved.mapping.alias}" is not available.`);
+  const auditBase = {
+    ts: new Date().toISOString(),
+    operation: "invoke",
+    mode: input.auditMode ?? "direct",
+    api: input.api,
+    method: input.method,
+    tenantId: input.tenantId ?? null,
+    rawParamCount: input.rawParams?.length ?? 0,
+    uploadedFileCount: input.uploadedFiles
+      ? Object.keys(input.uploadedFiles).length
+      : 0,
+    request: fullAudit
+      ? {
+          rawParams: input.rawParams ?? [],
+          uploadedFileParams: input.uploadedFiles
+            ? Object.keys(input.uploadedFiles)
+            : [],
+        }
+      : undefined,
+  };
+
+  try {
+    const resolved = resolveInvokeCall(input, env);
+
+    const client = await createAuthenticatedClient(env);
+    const apiClient = (client as XeroClient)[resolved.mapping.property];
+    if (!apiClient || typeof apiClient !== "object") {
+      throw new Error(`API client "${resolved.mapping.alias}" is not available.`);
+    }
+
+    const method = (apiClient as unknown as Record<string, unknown>)[
+      input.method
+    ];
+    if (typeof method !== "function") {
+      throw new Error(
+        `Unknown method "${input.method}" for API "${resolved.mapping.alias}".`,
+      );
+    }
+
+    const result = await (method as Function).apply(apiClient, resolved.args);
+    const printable = toPrintableResult(result);
+    appendAuditLine(env, {
+      ...auditBase,
+      status: "success",
+      durationMs: Date.now() - startedAt,
+      responseStatus: printable.status,
+    });
+    return printable;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendAuditLine(env, {
+      ...auditBase,
+      status: "error",
+      durationMs: Date.now() - startedAt,
+      error: message,
+    });
+    throw error;
   }
-
-  const method = (apiClient as unknown as Record<string, unknown>)[
-    input.method
-  ];
-  if (typeof method !== "function") {
-    throw new Error(
-      `Unknown method "${input.method}" for API "${resolved.mapping.alias}".`,
-    );
-  }
-
-  const result = await (method as Function).apply(apiClient, resolved.args);
-  return toPrintableResult(result);
 }

@@ -129,6 +129,7 @@ export async function startProxyServer(
               tenantId: typeof value.tenantId === "string" ? value.tenantId : undefined,
               rawParams,
               uploadedFiles,
+              auditMode: "proxy_server",
             },
             env,
           );

@@ -161,6 +161,7 @@ When `XERO_PROXY_URL` is set:
 - `xero auth ...` is disabled
 - `xero tenants ...` is disabled
 - `xero about` and help stay local
+- invoke policy is enforced on the proxy server machine
 
 Proxy-mode file behavior:
 
@@ -171,6 +172,59 @@ Security note:
 
 - proxy transport is plain HTTP JSON in current MVP (no TLS/auth hardening yet).
 
+## Policy (Invoke Permissions)
+
+Invoke calls are gated by `policy.json`.
+
+Policy file path:
+
+- default: `~/.config/xero-cli/policy.json`
+- override: `XERO_POLICY_PATH=/path/to/policy.json`
+
+Initialize full policy file from manifest:
+
+```bash
+xero policy init --profile block-all
+xero policy init --profile read-only
+xero policy init --profile read-ask-write
+```
+
+Profiles:
+
+- `block-all`: every method is `block`
+- `read-only`: methods starting with `get` are `allow`, others `block`
+- `read-ask-write`: methods starting with `get` are `allow`, others `ask`
+
+Policy file format:
+
+```json
+{
+  "methods": {
+    "accounting.getOrganisations": "allow",
+    "accounting.createAccount": "ask",
+    "files.uploadFile": "block"
+  }
+}
+```
+
+Rules:
+
+- if method is missing in `methods`, invoke is blocked
+- valid values are `allow`, `ask`, `block`
+- `ask` prompts on interactive TTY; in non-interactive runs it fails closed
+
+Policy `ask` keeps a human in the loop: the proxy operator must explicitly approve matching invokes before they are sent to Xero.
+
+In proxy mode, policy is evaluated on the trusted proxy server machine (not on the client).
+
+## Audit Log
+
+Each invoke attempt is appended as JSONL.
+
+- default: `~/.config/xero-cli/audit.jsonl`
+- override: `XERO_AUDIT_LOG_PATH=/path/to/audit.jsonl`
+- full request logging: `XERO_AUDIT_LOG_FULL=1` (logs `rawParams` and `uploadedFileParams`)
+
 ## Tenants
 
 List connected tenants from Xero `/connections`:
@@ -180,6 +234,12 @@ xero tenants list
 ```
 
 ## Invoke
+
+Before invoking methods, initialize policy:
+
+```bash
+xero policy init --profile read-only
+```
 
 Get organisation details:
 

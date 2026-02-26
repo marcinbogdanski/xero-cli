@@ -1,6 +1,6 @@
 # Development Notes
 
-Last updated: 2026-02-25
+Last updated: 2026-02-26
 
 ## Purpose
 Thin CLI wrapper around `xero-node`, designed for terminal/agent usage with broad API coverage through a generic `invoke` command.
@@ -8,12 +8,15 @@ Thin CLI wrapper around `xero-node`, designed for terminal/agent usage with broa
 ## Current State
 - CLI commands implemented:
   - `xero about`
+  - `xero doctor`
   - `xero auth status`
   - `xero auth login`
   - `xero auth scopes`
-  - `xero auth test`
   - `xero auth logout`
   - `xero tenants list`
+  - `xero policy init --profile ...`
+  - `xero policy list`
+  - `xero proxy`
   - `xero invoke <api> <method> -- --<param>=<value> ...`
 - Auth runtime implemented:
   - env-first `client_credentials` flow (no file read when env creds are present)
@@ -63,3 +66,18 @@ Validation behavior:
 - JSON fallback is syntactic validation only; there is no local schema validation against model fields.
 - For mutating endpoints, invalid-but-parseable payloads fail only at API time.
 - No dedicated dry-run mode yet.
+
+## Remaining Work (Proxy + Policy)
+- Add targeted tests for policy + audit behavior:
+  - `policy init` profiles and generated file shape
+  - `policy list` effective policy/source output
+  - fallback behavior (`get*` allow, non-`get*` block)
+  - `ask` behavior in TTY vs non-TTY runs
+  - audit JSONL fields and full-mode behavior
+- Harden proxy transport:
+  - request auth (shared token/header)
+  - TLS and/or strict trusted-network deployment guidance
+- Harden audit logs:
+  - sanitize/truncate SDK error payloads before writing to audit JSONL
+- Re-evaluate long-term `ask` flow for daemonized proxy:
+  - current behavior is fail-closed without interactive TTY

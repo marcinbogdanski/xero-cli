@@ -88,6 +88,12 @@ export interface InvokeResult {
 
 type MethodPolicy = "allow" | "ask" | "block";
 
+export interface PolicySummary {
+  allow: number;
+  ask: number;
+  block: number;
+}
+
 function resolveTenantId(
   env: NodeJS.ProcessEnv,
   explicitTenantId?: string,
@@ -477,20 +483,15 @@ function resolvePolicyFilePath(env: NodeJS.ProcessEnv): string | undefined {
   return path.join(configHome, "xero-cli", "policy.json");
 }
 
-function resolveMethodPolicy(
+function resolvePolicyMethodsFromFile(
   env: NodeJS.ProcessEnv,
-  methodKey: string,
-): { policy: MethodPolicy; hasEntry: boolean; policyPath?: string } {
-  const methodName = methodKey.includes(".")
-    ? methodKey.slice(methodKey.lastIndexOf(".") + 1)
-    : methodKey;
-  const fallbackPolicy: MethodPolicy = methodName.startsWith("get")
-    ? "allow"
-    : "block";
+): { methods: Record<string, MethodPolicy>; policyPath?: string } {
   const policyPath = resolvePolicyFilePath(env);
-
   if (!policyPath || !existsSync(policyPath)) {
-    return { policy: fallbackPolicy, hasEntry: false, policyPath };
+    return {
+      methods: {},
+      policyPath,
+    };
   }
 
   let parsed: unknown;
@@ -514,20 +515,77 @@ function resolveMethodPolicy(
     throw new Error(`Policy file "${policyPath}" field "methods" must be object.`);
   }
 
-  const methodPolicy = (value.methods as Record<string, unknown>)[methodKey];
+  const methods: Record<string, MethodPolicy> = {};
+  for (const [methodKey, methodPolicy] of Object.entries(value.methods)) {
+    if (
+      methodPolicy !== "allow" &&
+      methodPolicy !== "ask" &&
+      methodPolicy !== "block"
+    ) {
+      throw new Error(`Policy file "${policyPath}" has invalid value for "${methodKey}".`);
+    }
+    methods[methodKey] = methodPolicy;
+  }
+
+  return {
+    methods,
+    policyPath,
+  };
+}
+
+function resolveMethodPolicy(
+  env: NodeJS.ProcessEnv,
+  methodKey: string,
+): { policy: MethodPolicy; hasEntry: boolean; policyPath?: string } {
+  const methodName = methodKey.includes(".")
+    ? methodKey.slice(methodKey.lastIndexOf(".") + 1)
+    : methodKey;
+  const fallbackPolicy: MethodPolicy = methodName.startsWith("get")
+    ? "allow"
+    : "block";
+  const policyFile = resolvePolicyMethodsFromFile(env);
+  const methodPolicy = policyFile.methods[methodKey];
   if (methodPolicy === undefined) {
-    return { policy: fallbackPolicy, hasEntry: false, policyPath };
+    return { policy: fallbackPolicy, hasEntry: false, policyPath: policyFile.policyPath };
   }
 
-  if (
-    methodPolicy !== "allow" &&
-    methodPolicy !== "ask" &&
-    methodPolicy !== "block"
-  ) {
-    throw new Error(`Policy file "${policyPath}" has invalid value for "${methodKey}".`);
+  return { policy: methodPolicy, hasEntry: true, policyPath: policyFile.policyPath };
+}
+
+export function resolvePolicySummary(
+  env: NodeJS.ProcessEnv = process.env,
+): PolicySummary {
+  const policyFile = resolvePolicyMethodsFromFile(env);
+  const aliasByProperty = new Map<ApiProperty, string>(
+    API_MAPPINGS.map((item) => [item.property, item.alias]),
+  );
+  const summary: PolicySummary = {
+    allow: 0,
+    ask: 0,
+    block: 0,
+  };
+
+  const manifest = loadManifest();
+  for (const api of manifest.apis) {
+    const alias = aliasByProperty.get(api.name as ApiProperty);
+    if (!alias) {
+      continue;
+    }
+
+    for (const method of api.methods) {
+      if (!method.signatureFound) {
+        continue;
+      }
+
+      const methodKey = `${alias}.${method.name}`;
+      const policy =
+        policyFile.methods[methodKey] ??
+        (method.name.startsWith("get") ? "allow" : "block");
+      summary[policy] += 1;
+    }
   }
 
-  return { policy: methodPolicy, hasEntry: true, policyPath };
+  return summary;
 }
 
 async function promptAskPolicyDecision(methodKey: string): Promise<boolean> {

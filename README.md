@@ -120,7 +120,7 @@ xero doctor
 xero auth logout
 ```
 
-`xero doctor` always performs an authenticated Xero `/connections` call.
+`xero doctor` always performs an authenticated Xero `/connections` call and prints policy gating summary (`allowed`, `ask-policy`, `blocked` method counts).
 
 ### Keyring Backend
 

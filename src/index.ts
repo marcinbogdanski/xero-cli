@@ -20,7 +20,7 @@ import {
   storeOAuthTokenSet,
 } from "./auth";
 import { createAuthenticatedClient } from "./client";
-import { invokeXeroMethod } from "./invoke";
+import { invokeXeroMethod, resolvePolicySummary } from "./invoke";
 import { PROXY_HOST, PROXY_PORT, startProxyServer } from "./proxy";
 import { renderOAuthScopesHelpText, resolveOAuthScopes } from "./scopes";
 import { listTenants } from "./tenants";
@@ -396,6 +396,12 @@ program
       console.log(`  connections found: ${connectionsCount}`);
       console.log("  token valid: yes");
       console.log("");
+      console.log("Checking policy:");
+      const policySummary = resolvePolicySummary(process.env);
+      console.log(`  allowed - ${policySummary.allow} methods`);
+      console.log(`  ask-policy - ${policySummary.ask} methods`);
+      console.log(`  blocked - ${policySummary.block} methods`);
+      console.log("");
       console.log("Doctor summary:");
       console.log(`  status: ${green("ready")}`);
       console.log("  xero-cli is configured correctly and ready for commands.");
@@ -479,6 +485,25 @@ program
       "connections" in doctor && typeof doctor.connections === "number"
         ? doctor.connections
         : null;
+    const policySummary =
+      "policySummary" in doctor &&
+      doctor.policySummary &&
+      typeof doctor.policySummary === "object" &&
+      !Array.isArray(doctor.policySummary)
+        ? (doctor.policySummary as Record<string, unknown>)
+        : null;
+    const allowedCount =
+      policySummary && typeof policySummary.allow === "number"
+        ? policySummary.allow
+        : null;
+    const askCount =
+      policySummary && typeof policySummary.ask === "number"
+        ? policySummary.ask
+        : null;
+    const blockedCount =
+      policySummary && typeof policySummary.block === "number"
+        ? policySummary.block
+        : null;
 
     console.log(`  result: ${green("success")}`);
     console.log(`  mode: ${mode}`);
@@ -493,6 +518,17 @@ program
       `  connections found: ${connectionsCount === null ? "unknown" : connectionsCount}`,
     );
     console.log("  token valid: yes");
+    console.log("");
+    console.log("Checking policy:");
+    console.log(
+      `  allowed - ${allowedCount === null ? "unknown" : allowedCount} methods`,
+    );
+    console.log(
+      `  ask-policy - ${askCount === null ? "unknown" : askCount} methods`,
+    );
+    console.log(
+      `  blocked - ${blockedCount === null ? "unknown" : blockedCount} methods`,
+    );
     console.log("");
     console.log("Doctor summary:");
     console.log(`  status: ${green("ready")}`);

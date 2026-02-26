@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { resolveAuthStatus } from "./auth";
 import { createAuthenticatedClient } from "./client";
-import { invokeXeroMethod } from "./invoke";
+import { invokeXeroMethod, resolvePolicySummary } from "./invoke";
 
 export const PROXY_HOST = "0.0.0.0";
 export const PROXY_PORT = 8765;
@@ -36,6 +36,7 @@ export async function startProxyServer(
             Array.isArray(token.scope)
               ? token.scope.join(" ")
               : (token.scope ?? null);
+          const policySummary = resolvePolicySummary(env);
 
           response.writeHead(200, { "Content-Type": "application/json" });
           response.end(
@@ -46,6 +47,7 @@ export async function startProxyServer(
               tokenExpiresAt: tokenExpiresAt ?? "unknown",
               scope: scope ?? "unknown",
               connections: connectionsCount,
+              policySummary,
             }),
           );
           return;

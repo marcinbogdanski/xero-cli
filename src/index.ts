@@ -886,6 +886,10 @@ program
           );
         }
         const proxyPayload = resolveProxyInvokePayload(rawParams);
+        console.error("Request sent to proxy server, waiting for response...");
+        console.error(
+          'Note: methods with policy "ask" require manual confirmation on proxy server.',
+        );
         const response = await fetch(
           `${proxyUrl.replace(/\/+$/, "")}/v1/invoke`,
           {

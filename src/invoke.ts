@@ -623,15 +623,20 @@ async function promptAskPolicyDecision(
         ? Object.keys(invokeInput.uploadedFiles)
         : [],
     };
+    console.log("");
+    console.log("=====================");
     console.log("Policy ask request:");
     console.log(JSON.stringify(requestPreview, null, 2));
+    console.log("=====================");
 
     const answer = (
-      await rl.question(`Policy ask: allow "${methodKey}"? [y/N] `)
+      await rl.question(`Policy ask: allow "${methodKey}"? [Y/n] `)
     )
       .trim()
       .toLowerCase();
-    return answer === "y" || answer === "yes";
+    const approved = answer === "" || answer === "y" || answer === "yes";
+    console.log(approved ? "Approved." : "Denied.");
+    return approved;
   } finally {
     rl.close();
   }

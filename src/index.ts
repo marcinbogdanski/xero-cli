@@ -875,6 +875,16 @@ program
 
       const proxyUrl = process.env.XERO_PROXY_URL?.trim();
       if (proxyUrl) {
+        if (options.tenantId?.trim()) {
+          throw new Error(
+            'Do not pass "--tenant-id" in proxy mode. Set XERO_TENANT_ID_DEFAULT on proxy server.',
+          );
+        }
+        if (process.env.XERO_TENANT_ID_DEFAULT?.trim()) {
+          console.log(
+            "Proxy mode: local XERO_TENANT_ID_DEFAULT is ignored. Tenant is resolved on proxy server.",
+          );
+        }
         const proxyPayload = resolveProxyInvokePayload(rawParams);
         const response = await fetch(
           `${proxyUrl.replace(/\/+$/, "")}/v1/invoke`,
@@ -887,7 +897,6 @@ program
             body: JSON.stringify({
               api,
               method,
-              tenantId: options.tenantId,
               rawParams: proxyPayload.rawParams,
               uploadedFiles: proxyPayload.uploadedFiles,
             }),

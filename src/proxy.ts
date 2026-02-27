@@ -124,11 +124,23 @@ export async function startProxyServer(
         }
 
         try {
+          if (typeof value.tenantId === "string" && value.tenantId.trim()) {
+            response.writeHead(400, { "Content-Type": "application/json" });
+            response.end(
+              JSON.stringify({
+                error:
+                  'Do not pass "--tenant-id" in proxy mode. Set XERO_TENANT_ID_DEFAULT on proxy server.',
+              }),
+            );
+            return;
+          }
+
+          const proxyTenantId = env.XERO_TENANT_ID_DEFAULT?.trim();
           const result = await invokeXeroMethod(
             {
               api: value.api,
               method: value.method,
-              tenantId: typeof value.tenantId === "string" ? value.tenantId : undefined,
+              tenantId: proxyTenantId,
               rawParams,
               uploadedFiles,
               auditMode: "proxy_server",
@@ -139,7 +151,11 @@ export async function startProxyServer(
           response.end(JSON.stringify(result));
           return;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          let message = error instanceof Error ? error.message : String(error);
+          if (message === "Missing tenant ID. Set --tenant-id or XERO_TENANT_ID_DEFAULT.") {
+            message =
+              "Missing tenant ID on proxy server. Set XERO_TENANT_ID_DEFAULT on proxy server.";
+          }
           response.writeHead(400, { "Content-Type": "application/json" });
           response.end(JSON.stringify({ error: message }));
           return;

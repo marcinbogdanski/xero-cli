@@ -623,10 +623,23 @@ async function promptAskPolicyDecision(
         ? Object.keys(invokeInput.uploadedFiles)
         : [],
     };
+    // ANSI colors: api in cyan, read-like methods (get*) in green, others in yellow.
+    const methodColor = invokeInput.method.startsWith("get")
+      ? "\u001b[32m"
+      : "\u001b[33m";
+    let requestPreviewJson = JSON.stringify(requestPreview, null, 2);
+    requestPreviewJson = requestPreviewJson.replace(
+      `"api": "${invokeInput.api}"`,
+      `"api": "\u001b[36m${invokeInput.api}\u001b[0m"`,
+    );
+    requestPreviewJson = requestPreviewJson.replace(
+      `"method": "${invokeInput.method}"`,
+      `"method": "${methodColor}${invokeInput.method}\u001b[0m"`,
+    );
     console.log("");
     console.log("=====================");
     console.log("Policy ask request:");
-    console.log(JSON.stringify(requestPreview, null, 2));
+    console.log(requestPreviewJson);
     console.log("=====================");
 
     const answer = (

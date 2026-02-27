@@ -640,7 +640,6 @@ async function promptAskPolicyDecision(
     console.log("=====================");
     console.log("Policy ask request:");
     console.log(requestPreviewJson);
-    console.log("=====================");
 
     const answer = (
       await rl.question(`Policy ask: allow "${methodKey}"? [Y/n] `)
@@ -649,6 +648,7 @@ async function promptAskPolicyDecision(
       .toLowerCase();
     const approved = answer === "" || answer === "y" || answer === "yes";
     console.log(approved ? "Approved." : "Denied.");
+    console.log("=====================");
     return approved;
   } finally {
     rl.close();

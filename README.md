@@ -116,13 +116,122 @@ During normal usage, keyring access uses interactive prompt or `XERO_KEYRING_PAS
 
 ```bash
 xero auth status
-xero auth test
+xero doctor
 xero auth logout
 ```
+
+`xero doctor` always performs an authenticated Xero `/connections` call and prints policy gating summary (`allowed`, `ask-policy`, `blocked` method counts).
 
 ### Keyring Backend
 
 Currently only `file` backend is supported. Data is stored under `~/.config/xero-cli`.
+
+## Proxy Mode (Invoke Delegation)
+
+Proxy mode lets a trusted machine keep Xero auth while an agent machine delegates invoke calls.
+
+Trusted machine:
+
+```bash
+xero auth login --mode oauth
+XERO_KEYRING_PASSWORD=your_keyring_password xero proxy
+```
+
+`xero proxy` runs a startup auth preflight (Xero `/connections`) and exits if auth/token/connectivity is invalid.
+
+Proxy server defaults:
+
+- bind host: `0.0.0.0`
+- port: `8765`
+- routes:
+  - `GET /healthz`
+  - `POST /v1/doctor`
+  - `POST /v1/invoke`
+
+Agent machine:
+
+```bash
+XERO_PROXY_URL=http://trusted-host:8765 xero invoke accounting getOrganisations
+```
+
+When `XERO_PROXY_URL` is set:
+
+- `xero invoke ...` is delegated through proxy
+- `xero doctor` checks proxy reachability then runs auth check on proxy server
+- `xero auth ...` is disabled
+- `xero tenants ...` is disabled
+- `xero about` and help stay local
+- invoke policy is enforced on the proxy server machine
+
+Proxy-mode file behavior:
+
+- `.json` invoke arg values are read and parsed on client machine, then sent inline as JSON.
+- local file path values for non-`.json` args are sent as base64 file payloads and consumed as binary `Buffer` params on proxy.
+
+Security note:
+
+- proxy transport is plain HTTP JSON in current MVP (no TLS/auth hardening yet).
+
+## Policy (Invoke Permissions)
+
+Invoke calls are gated by `policy.json`.
+
+Policy file path:
+
+- default: `~/.config/xero-cli/policy.json`
+- override: `XERO_POLICY_PATH=/path/to/policy.json`
+
+Initialize full policy file from manifest:
+
+```bash
+xero policy init --profile block-all
+xero policy init --profile read-only
+xero policy init --profile read-ask-write
+```
+
+List effective policy for every supported method:
+
+```bash
+xero policy list
+```
+
+Profiles:
+
+- `block-all`: every method is `block`
+- `read-only`: methods starting with `get` are `allow`, others `block`
+- `read-ask-write`: methods starting with `get` are `allow`, others `ask`
+
+Policy file format:
+
+```json
+{
+  "methods": {
+    "accounting.getOrganisations": "allow",
+    "accounting.createAccount": "ask",
+    "files.uploadFile": "block"
+  }
+}
+```
+
+Rules:
+
+- if policy file is missing, all methods are allowed
+- if method is missing in `methods`, methods starting with `get` are allowed, all others are blocked
+- valid values are `allow`, `ask`, `block`
+- `ask` prompts on interactive TTY; in non-interactive runs it fails closed
+- `xero policy list` shows effective policy per method and policy source (`policy_file` or `built_in_default`)
+
+Policy `ask` keeps a human in the loop: the proxy operator must explicitly approve matching invokes before they are sent to Xero.
+
+In proxy mode, policy is evaluated on the trusted proxy server machine (not on the client).
+
+## Audit Log
+
+Each invoke attempt is appended as JSONL.
+
+- default: `~/.config/xero-cli/audit.jsonl`
+- override: `XERO_AUDIT_LOG_PATH=/path/to/audit.jsonl`
+- full request logging: `XERO_AUDIT_LOG_FULL=1` (logs `rawParams` and `uploadedFileParams`)
 
 ## Tenants
 
@@ -133,6 +242,12 @@ xero tenants list
 ```
 
 ## Invoke
+
+To keep strict control, initialize policy first:
+
+```bash
+xero policy init --profile read-only
+```
 
 Get organisation details:
 
@@ -186,4 +301,12 @@ List files sorted by size descending (string-literal union params):
 
 ```bash
 xero invoke files getFiles -- --sort=Size --direction=DESC
+```
+
+Simple list/add/remove chain with Files folders:
+
+```bash
+xero invoke files getFolders
+xero invoke files createFolder -- --folder='{"name":"cli-test-folder"}'
+xero invoke files deleteFolder -- --folderId=<folder-id-from-create-response>
 ```

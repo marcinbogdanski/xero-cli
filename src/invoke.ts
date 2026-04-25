@@ -1,5 +1,13 @@
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
+import { stdin as input, stdout as output } from "node:process";
+import { createInterface } from "node:readline/promises";
 import { XeroClient } from "xero-node";
 import { createAuthenticatedClient } from "./client";
 
@@ -69,11 +77,21 @@ export interface InvokeInput {
   method: string;
   tenantId?: string;
   rawParams?: string[];
+  uploadedFiles?: Record<string, string>;
+  auditMode?: "direct" | "proxy_server";
 }
 
 export interface InvokeResult {
   status: number | null;
   body: unknown;
+}
+
+type MethodPolicy = "allow" | "ask" | "block";
+
+export interface PolicySummary {
+  allow: number;
+  ask: number;
+  block: number;
 }
 
 function resolveTenantId(
@@ -156,6 +174,7 @@ function parseValueByType(
   declaredType: string,
   rawValue: string,
   name: string,
+  uploadedFile: string | undefined,
 ): unknown {
   if (declaredType === "string") {
     return rawValue;
@@ -224,6 +243,10 @@ function parseValueByType(
   }
 
   if (declaredType === BINARY_FILE_PARAM_TYPE) {
+    if (uploadedFile) {
+      return Buffer.from(uploadedFile, "base64");
+    }
+
     const filePath = rawValue.trim();
     if (!filePath) {
       throw new Error(
@@ -240,7 +263,7 @@ function parseValueByType(
       throw new Error(`Parameter "${name}" expects a file path, got: "${filePath}".`);
     }
 
-    return createReadStream(filePath);
+    return readFileSync(filePath);
   }
 
   if (declaredType.includes(" | ")) {
@@ -326,6 +349,7 @@ function buildInvokeArgs(
   manifestMethod: ManifestMethod,
   tenantId: string | undefined,
   rawParams: string[],
+  uploadedFiles: Record<string, string> | undefined,
 ): unknown[] {
   const providedParams = parseRawNamedParams(rawParams);
   const signatureParams = manifestMethod.params;
@@ -364,7 +388,12 @@ function buildInvokeArgs(
       continue;
     }
 
-    args[index] = parseValueByType(param.declaredType, providedValue, param.name);
+    args[index] = parseValueByType(
+      param.declaredType,
+      providedValue,
+      param.name,
+      uploadedFiles?.[param.name],
+    );
   }
 
   while (args.length > 0 && args[args.length - 1] === undefined) {
@@ -397,10 +426,10 @@ function toPrintableResult(result: unknown): InvokeResult {
   };
 }
 
-export async function invokeXeroMethod(
+function resolveInvokeCall(
   input: InvokeInput,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<InvokeResult> {
+  env: NodeJS.ProcessEnv,
+): { mapping: ApiMapping; args: unknown[] } {
   const mapping = resolveApiMapping(input.api);
   if (!mapping) {
     throw new Error(`Unknown API "${input.api}".`);
@@ -411,29 +440,340 @@ export async function invokeXeroMethod(
     : undefined;
 
   const manifestMethod = resolveManifestMethod(mapping.property, input.method);
-
   if (!manifestMethod || !manifestMethod.signatureFound) {
     throw new Error(
       `No signature metadata for "${mapping.property}.${input.method}". Regenerate/expand resources/xero-api-manifest.json, or use a raw endpoint fallback when available.`,
     );
   }
-  const args = buildInvokeArgs(manifestMethod, tenantId, input.rawParams ?? []);
 
-  const client = await createAuthenticatedClient(env);
-  const apiClient = (client as XeroClient)[mapping.property];
-  if (!apiClient || typeof apiClient !== "object") {
-    throw new Error(`API client "${mapping.alias}" is not available.`);
+  const args = buildInvokeArgs(
+    manifestMethod,
+    tenantId,
+    input.rawParams ?? [],
+    input.uploadedFiles,
+  );
+  return { mapping, args };
+}
+
+function resolveConfigHome(env: NodeJS.ProcessEnv): string | undefined {
+  const xdg = env.XDG_CONFIG_HOME?.trim();
+  if (xdg) {
+    return xdg;
   }
 
-  const method = (apiClient as unknown as Record<string, unknown>)[
-    input.method
-  ];
-  if (typeof method !== "function") {
+  const home = env.HOME?.trim();
+  if (!home) {
+    return undefined;
+  }
+
+  return path.join(home, ".config");
+}
+
+function resolvePolicyFilePath(env: NodeJS.ProcessEnv): string | undefined {
+  const fromEnv = env.XERO_POLICY_PATH?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  const configHome = resolveConfigHome(env);
+  if (!configHome) {
+    return undefined;
+  }
+
+  return path.join(configHome, "xero-cli", "policy.json");
+}
+
+function resolvePolicyMethodsFromFile(
+  env: NodeJS.ProcessEnv,
+): {
+  methods: Record<string, MethodPolicy>;
+  policyPath?: string;
+  policyFileExists: boolean;
+} {
+  const policyPath = resolvePolicyFilePath(env);
+  if (!policyPath || !existsSync(policyPath)) {
+    return {
+      methods: {},
+      policyPath,
+      policyFileExists: false,
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(policyPath, "utf8"));
+  } catch {
+    throw new Error(`Failed to parse policy file "${policyPath}".`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Policy file "${policyPath}" must contain an object.`);
+  }
+
+  const value = parsed as { methods?: unknown };
+
+  if (
+    typeof value.methods !== "object" ||
+    value.methods === null ||
+    Array.isArray(value.methods)
+  ) {
+    throw new Error(`Policy file "${policyPath}" field "methods" must be object.`);
+  }
+
+  const methods: Record<string, MethodPolicy> = {};
+  for (const [methodKey, methodPolicy] of Object.entries(value.methods)) {
+    if (
+      methodPolicy !== "allow" &&
+      methodPolicy !== "ask" &&
+      methodPolicy !== "block"
+    ) {
+      throw new Error(`Policy file "${policyPath}" has invalid value for "${methodKey}".`);
+    }
+    methods[methodKey] = methodPolicy;
+  }
+
+  return {
+    methods,
+    policyPath,
+    policyFileExists: true,
+  };
+}
+
+function resolveMethodPolicy(
+  env: NodeJS.ProcessEnv,
+  methodKey: string,
+): { policy: MethodPolicy; hasEntry: boolean; policyPath?: string } {
+  const methodName = methodKey.includes(".")
+    ? methodKey.slice(methodKey.lastIndexOf(".") + 1)
+    : methodKey;
+  const policyFile = resolvePolicyMethodsFromFile(env);
+  const fallbackPolicy: MethodPolicy = !policyFile.policyFileExists
+    ? "allow"
+    : methodName.startsWith("get")
+      ? "allow"
+      : "block";
+  const methodPolicy = policyFile.methods[methodKey];
+  if (methodPolicy === undefined) {
+    return { policy: fallbackPolicy, hasEntry: false, policyPath: policyFile.policyPath };
+  }
+
+  return { policy: methodPolicy, hasEntry: true, policyPath: policyFile.policyPath };
+}
+
+export function resolvePolicySummary(
+  env: NodeJS.ProcessEnv = process.env,
+): PolicySummary {
+  const policyFile = resolvePolicyMethodsFromFile(env);
+  const aliasByProperty = new Map<ApiProperty, string>(
+    API_MAPPINGS.map((item) => [item.property, item.alias]),
+  );
+  const summary: PolicySummary = {
+    allow: 0,
+    ask: 0,
+    block: 0,
+  };
+
+  const manifest = loadManifest();
+  for (const api of manifest.apis) {
+    const alias = aliasByProperty.get(api.name as ApiProperty);
+    if (!alias) {
+      continue;
+    }
+
+    for (const method of api.methods) {
+      if (!method.signatureFound) {
+        continue;
+      }
+
+      const methodKey = `${alias}.${method.name}`;
+      const policy =
+        policyFile.methods[methodKey] ??
+        (!policyFile.policyFileExists
+          ? "allow"
+          : method.name.startsWith("get")
+            ? "allow"
+            : "block");
+      summary[policy] += 1;
+    }
+  }
+
+  return summary;
+}
+
+async function promptAskPolicyDecision(
+  methodKey: string,
+  invokeInput: InvokeInput,
+): Promise<boolean> {
+  const ttyInput = input as NodeJS.ReadStream & { isTTY?: boolean };
+  const ttyOutput = output as NodeJS.WriteStream & { isTTY?: boolean };
+  if (!ttyInput.isTTY || !ttyOutput.isTTY) {
     throw new Error(
-      `Unknown method "${input.method}" for API "${mapping.alias}".`,
+      `Method "${methodKey}" requires approval but no interactive terminal is available. Set this method policy to allow or block for non-interactive runs.`,
     );
   }
 
-  const result = await (method as Function).apply(apiClient, args);
-  return toPrintableResult(result);
+  const rl = createInterface({ input, output });
+  try {
+    const requestPreview = {
+      api: invokeInput.api,
+      method: invokeInput.method,
+      tenantId: invokeInput.tenantId ?? null,
+      rawParams: invokeInput.rawParams ?? [],
+      uploadedFileParams: invokeInput.uploadedFiles
+        ? Object.keys(invokeInput.uploadedFiles)
+        : [],
+    };
+    // ANSI colors: api in cyan, read-like methods (get*) in green, others in yellow.
+    const methodColor = invokeInput.method.startsWith("get")
+      ? "\u001b[32m"
+      : "\u001b[33m";
+    let requestPreviewJson = JSON.stringify(requestPreview, null, 2);
+    requestPreviewJson = requestPreviewJson.replace(
+      `"api": "${invokeInput.api}"`,
+      `"api": "\u001b[36m${invokeInput.api}\u001b[0m"`,
+    );
+    requestPreviewJson = requestPreviewJson.replace(
+      `"method": "${invokeInput.method}"`,
+      `"method": "${methodColor}${invokeInput.method}\u001b[0m"`,
+    );
+    console.log("");
+    console.log("=====================");
+    console.log("Policy ask request:");
+    console.log(requestPreviewJson);
+
+    const answer = (
+      await rl.question(`Policy ask: allow "${methodKey}"? [Y/n] `)
+    )
+      .trim()
+      .toLowerCase();
+    const approved = answer === "" || answer === "y" || answer === "yes";
+    console.log(approved ? "Approved." : "Denied.");
+    console.log("=====================");
+    return approved;
+  } finally {
+    rl.close();
+  }
+}
+
+function appendAuditLine(
+  env: NodeJS.ProcessEnv,
+  event: Record<string, unknown>,
+): void {
+  try {
+    const fromEnv = env.XERO_AUDIT_LOG_PATH?.trim();
+    let filePath = fromEnv;
+    if (!filePath) {
+      const configHome = resolveConfigHome(env);
+      if (!configHome) {
+        return;
+      }
+      filePath = path.join(configHome, "xero-cli", "audit.jsonl");
+    }
+
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    appendFileSync(filePath, `${JSON.stringify(event)}\n`, "utf8");
+  } catch {
+    // best effort
+  }
+}
+
+export async function invokeXeroMethod(
+  input: InvokeInput,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<InvokeResult> {
+  const startedAt = Date.now();
+  const fullAudit = ["1", "true", "yes"].includes(
+    (env.XERO_AUDIT_LOG_FULL ?? "").trim().toLowerCase(),
+  );
+  let policyForAudit: MethodPolicy | "unknown" = "unknown";
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    operation: "invoke",
+    mode: input.auditMode ?? "direct",
+    api: input.api,
+    method: input.method,
+    tenantId: input.tenantId ?? null,
+    rawParamCount: input.rawParams?.length ?? 0,
+    uploadedFileCount: input.uploadedFiles
+      ? Object.keys(input.uploadedFiles).length
+      : 0,
+    request: fullAudit
+      ? {
+          rawParams: input.rawParams ?? [],
+          uploadedFileParams: input.uploadedFiles
+            ? Object.keys(input.uploadedFiles)
+            : [],
+        }
+      : undefined,
+  };
+
+  try {
+    const mapping = resolveApiMapping(input.api);
+    if (!mapping) {
+      throw new Error(`Unknown API "${input.api}".`);
+    }
+
+    const methodKey = `${mapping.alias}.${input.method}`;
+    const policy = resolveMethodPolicy(env, methodKey);
+    policyForAudit = policy.policy;
+    if (policy.policy === "block") {
+      if (!policy.hasEntry) {
+        if (policy.policyPath) {
+          throw new Error(
+            `Method "${methodKey}" is blocked by default policy (method is not listed and does not start with "get"). Add it to "${policy.policyPath}" and set allow/ask/block.`,
+          );
+        }
+        throw new Error(
+          `Method "${methodKey}" is blocked by default policy (method is not listed and does not start with "get"). Set HOME/XDG_CONFIG_HOME or XERO_POLICY_PATH, then add it and set allow/ask/block.`,
+        );
+      }
+      throw new Error(`Method "${methodKey}" is blocked by policy.`);
+    }
+
+    if (policy.policy === "ask") {
+      const approved = await promptAskPolicyDecision(methodKey, input);
+      if (!approved) {
+        throw new Error(`Method "${methodKey}" was denied by user.`);
+      }
+    }
+
+    const resolved = resolveInvokeCall(input, env);
+
+    const client = await createAuthenticatedClient(env);
+    const apiClient = (client as XeroClient)[resolved.mapping.property];
+    if (!apiClient || typeof apiClient !== "object") {
+      throw new Error(`API client "${resolved.mapping.alias}" is not available.`);
+    }
+
+    const method = (apiClient as unknown as Record<string, unknown>)[
+      input.method
+    ];
+    if (typeof method !== "function") {
+      throw new Error(
+        `Unknown method "${input.method}" for API "${resolved.mapping.alias}".`,
+      );
+    }
+
+    const result = await (method as Function).apply(apiClient, resolved.args);
+    const printable = toPrintableResult(result);
+    appendAuditLine(env, {
+      ...auditBase,
+      policy: policyForAudit,
+      status: "success",
+      durationMs: Date.now() - startedAt,
+      responseStatus: printable.status,
+    });
+    return printable;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendAuditLine(env, {
+      ...auditBase,
+      policy: policyForAudit,
+      status: "error",
+      durationMs: Date.now() - startedAt,
+      error: message,
+    });
+    throw error;
+  }
 }

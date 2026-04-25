@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
@@ -12,11 +20,136 @@ import {
   storeOAuthTokenSet,
 } from "./auth";
 import { createAuthenticatedClient } from "./client";
-import { invokeXeroMethod } from "./invoke";
+import { invokeXeroMethod, resolvePolicySummary } from "./invoke";
+import { PROXY_HOST, PROXY_PORT, startProxyServer } from "./proxy";
 import { renderOAuthScopesHelpText, resolveOAuthScopes } from "./scopes";
 import { listTenants } from "./tenants";
 
 const program = new Command();
+const green = (value: string): string => `\u001b[32m${value}\u001b[0m`;
+
+const POLICY_PROFILE_VALUES = ["block-all", "read-only", "read-ask-write"] as const;
+type PolicyValue = "allow" | "ask" | "block";
+
+function resolveConfigHome(env: NodeJS.ProcessEnv): string {
+  const xdg = env.XDG_CONFIG_HOME?.trim();
+  if (xdg) {
+    return xdg;
+  }
+
+  const home = env.HOME?.trim();
+  if (!home) {
+    throw new Error("Cannot resolve config directory. Set HOME or XDG_CONFIG_HOME.");
+  }
+
+  return path.join(home, ".config");
+}
+
+function resolvePolicyPath(env: NodeJS.ProcessEnv): string {
+  const fromEnv = env.XERO_POLICY_PATH?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  return path.join(resolveConfigHome(env), "xero-cli", "policy.json");
+}
+
+function resolveManifestMethodKeys(): string[] {
+  const manifestPath = path.resolve(__dirname, "../resources/xero-api-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    apis: Array<{
+      name: string;
+      methods: Array<{
+        name: string;
+        signatureFound: boolean;
+      }>;
+    }>;
+  };
+
+  const aliases: Record<string, string> = {
+    accountingApi: "accounting",
+    assetApi: "asset",
+    filesApi: "files",
+    projectApi: "project",
+    payrollAUApi: "payroll-au",
+    payrollNZApi: "payroll-nz",
+    payrollUKApi: "payroll-uk",
+    bankFeedsApi: "bankfeeds",
+    appStoreApi: "appstore",
+    financeApi: "finance",
+  };
+
+  const methodKeys: string[] = [];
+  for (const api of manifest.apis) {
+    const alias = aliases[api.name];
+    if (!alias) {
+      continue;
+    }
+
+    for (const method of api.methods) {
+      if (!method.signatureFound) {
+        continue;
+      }
+      methodKeys.push(`${alias}.${method.name}`);
+    }
+  }
+
+  methodKeys.sort();
+  return methodKeys;
+}
+
+function resolvePolicyMethodOverrides(env: NodeJS.ProcessEnv): {
+  policyPath: string;
+  policyFileExists: boolean;
+  methods: Record<string, PolicyValue>;
+} {
+  const policyPath = resolvePolicyPath(env);
+  if (!existsSync(policyPath)) {
+    return {
+      policyPath,
+      policyFileExists: false,
+      methods: {},
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(policyPath, "utf8"));
+  } catch {
+    throw new Error(`Failed to parse policy file "${policyPath}".`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Policy file "${policyPath}" must contain an object.`);
+  }
+
+  const value = parsed as { methods?: unknown };
+  if (
+    typeof value.methods !== "object" ||
+    value.methods === null ||
+    Array.isArray(value.methods)
+  ) {
+    throw new Error(`Policy file "${policyPath}" field "methods" must be object.`);
+  }
+
+  const methods: Record<string, PolicyValue> = {};
+  for (const [methodKey, methodPolicy] of Object.entries(value.methods)) {
+    if (
+      methodPolicy !== "allow" &&
+      methodPolicy !== "ask" &&
+      methodPolicy !== "block"
+    ) {
+      throw new Error(`Policy file "${policyPath}" has invalid value for "${methodKey}".`);
+    }
+    methods[methodKey] = methodPolicy;
+  }
+
+  return {
+    policyPath,
+    policyFileExists: true,
+    methods,
+  };
+}
 
 async function promptRequiredValue(prompt: string): Promise<string> {
   const rl = createInterface({ input, output });
@@ -150,6 +283,64 @@ async function resolveLoginKeyringPassword(
   }
 }
 
+function resolveProxyInvokePayload(rawParams: string[]): {
+  rawParams: string[];
+  uploadedFiles?: Record<string, string>;
+} {
+  // In proxy mode, expand local .json args and upload local binary files.
+  const uploadedFiles: Record<string, string> = {};
+  const proxyRawParams = rawParams.map((token) => {
+    if (!token.startsWith("--")) {
+      return token;
+    }
+
+    const separatorIndex = token.indexOf("=");
+    if (separatorIndex <= 0) {
+      return token;
+    }
+
+    const name = token.slice(2, separatorIndex).trim();
+    if (!name) {
+      return token;
+    }
+
+    const value = token.slice(separatorIndex + 1).trim();
+    if (!value.toLowerCase().endsWith(".json")) {
+      if (existsSync(value)) {
+        const stats = statSync(value);
+        if (stats.isFile()) {
+          uploadedFiles[name] = readFileSync(value).toString("base64");
+        }
+      }
+      return token;
+    }
+
+    if (!existsSync(value)) {
+      throw new Error(`Proxy JSON file does not exist: "${value}".`);
+    }
+
+    const stats = statSync(value);
+    if (!stats.isFile()) {
+      throw new Error(`Proxy JSON path is not a file: "${value}".`);
+    }
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(readFileSync(value, "utf8"));
+    } catch {
+      throw new Error(`Proxy JSON file is invalid: "${value}".`);
+    }
+
+    return `${token.slice(0, separatorIndex + 1)}${JSON.stringify(parsedJson)}`;
+  });
+
+  return {
+    rawParams: proxyRawParams,
+    uploadedFiles:
+      Object.keys(uploadedFiles).length > 0 ? uploadedFiles : undefined,
+  };
+}
+
 program
   .name("xero")
   .description("Thin CLI wrapper around xero-node")
@@ -160,6 +351,188 @@ program
   .description("Show project summary")
   .action(() => {
     console.log("xero: thin CLI wrapper around xero-node");
+  });
+
+program
+  .command("doctor")
+  .description("Check direct/proxy chain and auth")
+  .action(async () => {
+    const proxyUrl = process.env.XERO_PROXY_URL?.trim();
+    console.log("Checking app mode:");
+    console.log(`  env var XERO_PROXY_URL: ${proxyUrl || "not set"}`);
+
+    if (!proxyUrl) {
+      console.log(`  app mode: ${green("direct")}`);
+      console.log("");
+      await ensureRuntimeKeyringPassword(process.env);
+      console.log("");
+
+      console.log("Testing authentication:");
+      const status = resolveAuthStatus(process.env);
+      const client = await createAuthenticatedClient(process.env);
+      const token = client.readTokenSet();
+      const tokenExpiresAt =
+        typeof token.expires_at === "number"
+          ? new Date(token.expires_at * 1000).toISOString()
+          : null;
+      const scope =
+        Array.isArray(token.scope)
+          ? token.scope.join(" ")
+          : (token.scope ?? null);
+      console.log(`  result: ${green("success")}`);
+      console.log(`  mode: ${status.authMode ?? "unknown"}`);
+      console.log(`  credential source: ${status.credentialSource ?? "unknown"}`);
+      console.log(`  token type: ${token.token_type ?? "unknown"}`);
+      console.log(`  token expires at: ${tokenExpiresAt ?? "unknown"}`);
+      console.log(`  scope: ${scope ?? "unknown"}`);
+      console.log("");
+
+      console.log("Testing token validity by calling xero.com endpoint:");
+      const connections = await client.updateTenants(false);
+      const connectionsCount = Array.isArray(connections)
+        ? connections.length
+        : 0;
+      console.log(`  request: ${green("success")}`);
+      console.log(`  connections found: ${connectionsCount}`);
+      console.log("  token valid: yes");
+      console.log("");
+      console.log("Checking policy:");
+      const policySummary = resolvePolicySummary(process.env);
+      console.log(`  allowed - ${policySummary.allow} methods`);
+      console.log(`  ask-policy - ${policySummary.ask} methods`);
+      console.log(`  blocked - ${policySummary.block} methods`);
+      console.log("");
+      console.log("Doctor summary:");
+      console.log(`  status: ${green("ready")}`);
+      console.log("  xero-cli is configured correctly and ready for commands.");
+      return;
+    }
+
+    const proxyBaseUrl = proxyUrl.replace(/\/+$/, "");
+    console.log(`  app mode: ${green("proxy")}`);
+    console.log(`  proxy url: ${proxyBaseUrl}`);
+    console.log("");
+    console.log("Testing proxy reachability:");
+
+    try {
+      const health = await fetch(`${proxyBaseUrl}/healthz`);
+      if (!health.ok) {
+        throw new Error(`health check failed (${health.status})`);
+      }
+      console.log(`  result: ${green("success")}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Testing proxy reachability failed: ${message}`);
+    }
+    console.log("");
+    console.log("Testing server authentication:");
+
+    const response = await fetch(`${proxyBaseUrl}/v1/doctor`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    const raw = await response.text();
+    let parsed: unknown = null;
+    try {
+      parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!response.ok) {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        "error" in parsed &&
+        typeof (parsed as { error?: unknown }).error === "string"
+      ) {
+        throw new Error(
+          `Testing server authentication failed: ${(parsed as { error: string }).error}`,
+        );
+      }
+      throw new Error(`Testing server authentication failed (${response.status}).`);
+    }
+
+    const doctor =
+      parsed && typeof parsed === "object"
+        ? (parsed as Record<string, unknown>)
+        : {};
+    const mode =
+      "mode" in doctor && typeof doctor.mode === "string"
+        ? doctor.mode
+        : "unknown";
+    const credentialSource =
+      "credentialSource" in doctor &&
+      typeof doctor.credentialSource === "string"
+        ? doctor.credentialSource
+        : "unknown";
+    const tokenType =
+      "tokenType" in doctor && typeof doctor.tokenType === "string"
+        ? doctor.tokenType
+        : "unknown";
+    const tokenExpiresAt =
+      "tokenExpiresAt" in doctor && typeof doctor.tokenExpiresAt === "string"
+        ? doctor.tokenExpiresAt
+        : "unknown";
+    const scope =
+      "scope" in doctor && typeof doctor.scope === "string"
+        ? doctor.scope
+        : "unknown";
+    const connectionsCount =
+      "connections" in doctor && typeof doctor.connections === "number"
+        ? doctor.connections
+        : null;
+    const policySummary =
+      "policySummary" in doctor &&
+      doctor.policySummary &&
+      typeof doctor.policySummary === "object" &&
+      !Array.isArray(doctor.policySummary)
+        ? (doctor.policySummary as Record<string, unknown>)
+        : null;
+    const allowedCount =
+      policySummary && typeof policySummary.allow === "number"
+        ? policySummary.allow
+        : null;
+    const askCount =
+      policySummary && typeof policySummary.ask === "number"
+        ? policySummary.ask
+        : null;
+    const blockedCount =
+      policySummary && typeof policySummary.block === "number"
+        ? policySummary.block
+        : null;
+
+    console.log(`  result: ${green("success")}`);
+    console.log(`  mode: ${mode}`);
+    console.log(`  credential source: ${credentialSource}`);
+    console.log(`  token type: ${tokenType}`);
+    console.log(`  token expires at: ${tokenExpiresAt}`);
+    console.log(`  scope: ${scope}`);
+    console.log("");
+    console.log("Testing server token validity by calling xero.com endpoint:");
+    console.log(`  request: ${green("success")}`);
+    console.log(
+      `  connections found: ${connectionsCount === null ? "unknown" : connectionsCount}`,
+    );
+    console.log("  token valid: yes");
+    console.log("");
+    console.log("Checking policy:");
+    console.log(
+      `  allowed - ${allowedCount === null ? "unknown" : allowedCount} methods`,
+    );
+    console.log(
+      `  ask-policy - ${askCount === null ? "unknown" : askCount} methods`,
+    );
+    console.log(
+      `  blocked - ${blockedCount === null ? "unknown" : blockedCount} methods`,
+    );
+    console.log("");
+    console.log("Doctor summary:");
+    console.log(`  status: ${green("ready")}`);
+    console.log("  xero-cli is configured correctly and ready for commands.");
   });
 
 const auth = program
@@ -200,28 +573,6 @@ auth
       console.log("No stored authentication file to remove.");
     }
     console.log(`Auth file: ${result.authFilePath}`);
-  });
-
-auth
-  .command("test")
-  .description("Test auth by requesting an access token")
-  .action(async () => {
-    await ensureRuntimeKeyringPassword(process.env);
-    const status = resolveAuthStatus(process.env);
-    const client = await createAuthenticatedClient(process.env);
-    const token = client.readTokenSet();
-    const tokenExpiresAt =
-      typeof token.expires_at === "number"
-        ? new Date(token.expires_at * 1000).toISOString()
-        : null;
-    const scope =
-      Array.isArray(token.scope) ? token.scope.join(" ") : (token.scope ?? null);
-    console.log("Auth test successful.");
-    console.log(`  mode: ${status.authMode ?? "unknown"}`);
-    console.log(`  credential source: ${status.credentialSource ?? "unknown"}`);
-    console.log(`  token type: ${token.token_type ?? "unknown"}`);
-    console.log(`  token expires at: ${tokenExpiresAt ?? "unknown"}`);
-    console.log(`  scope: ${scope ?? "unknown"}`);
   });
 
 auth
@@ -366,6 +717,145 @@ tenants
     console.log(JSON.stringify(results, null, 2));
   });
 
+const policy = program
+  .command("policy")
+  .description("Policy commands");
+
+policy.action(() => {
+  policy.outputHelp();
+});
+
+policy
+  .command("init")
+  .description("Initialize policy.json from invoke manifest")
+  .requiredOption(
+    "--profile <profile>",
+    `Policy profile (${POLICY_PROFILE_VALUES.join(", ")})`,
+  )
+  .action((options: { profile: string }) => {
+    const profile = options.profile.trim().toLowerCase();
+    if (!POLICY_PROFILE_VALUES.includes(profile as (typeof POLICY_PROFILE_VALUES)[number])) {
+      throw new Error(
+        `Unsupported policy profile "${options.profile}". Supported: ${POLICY_PROFILE_VALUES.join(", ")}.`,
+      );
+    }
+
+    const methods = resolveManifestMethodKeys();
+    const values: Record<string, "allow" | "ask" | "block"> = {};
+
+    for (const methodKey of methods) {
+      const methodName = methodKey.split(".")[1];
+      const isReadOnly = methodName.startsWith("get");
+
+      if (profile === "block-all") {
+        values[methodKey] = "block";
+        continue;
+      }
+
+      if (profile === "read-only") {
+        values[methodKey] = isReadOnly ? "allow" : "block";
+        continue;
+      }
+
+      values[methodKey] = isReadOnly ? "allow" : "ask";
+    }
+
+    const policyPath = resolvePolicyPath(process.env);
+    mkdirSync(path.dirname(policyPath), { recursive: true });
+    writeFileSync(
+      policyPath,
+      `${JSON.stringify({ methods: values }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const allowCount = Object.values(values).filter((item) => item === "allow").length;
+    const askCount = Object.values(values).filter((item) => item === "ask").length;
+    const blockCount = Object.values(values).filter((item) => item === "block").length;
+
+    console.log(`Wrote policy file: ${policyPath}`);
+    console.log(`  profile: ${profile}`);
+    console.log(`  methods: ${methods.length}`);
+    console.log(`  allow: ${allowCount}`);
+    console.log(`  ask: ${askCount}`);
+    console.log(`  block: ${blockCount}`);
+  });
+
+policy
+  .command("list")
+  .description("List all invoke methods with effective policy and source")
+  .action(() => {
+    const methods = resolveManifestMethodKeys();
+    const policy = resolvePolicyMethodOverrides(process.env);
+    const items = methods.map((method) => {
+      const fromFile = policy.methods[method];
+      if (fromFile) {
+        return {
+          method,
+          policy: fromFile as PolicyValue,
+          source: "policy_file",
+        };
+      }
+
+      const methodName = method.slice(method.lastIndexOf(".") + 1);
+      return {
+        method,
+        policy: !policy.policyFileExists
+          ? "allow"
+          : methodName.startsWith("get")
+            ? "allow"
+            : "block",
+        source: "built_in_default",
+      };
+    });
+
+    console.log(`policy path: ${policy.policyPath}`);
+    console.log(`policy file exists: ${policy.policyFileExists ? "yes" : "no"}`);
+    console.log("");
+    const policyWidth = Math.max(
+      "policy".length,
+      ...items.map((item) => item.policy.length),
+    );
+    const methodWidth = Math.max(
+      "method".length,
+      ...items.map((item) => item.method.length),
+    );
+    const sourceWidth = Math.max(
+      "source".length,
+      ...items.map((item) => item.source.length),
+    );
+
+    const header = `${"policy".padEnd(policyWidth)} | ${"method".padEnd(methodWidth)} | ${"source".padEnd(sourceWidth)}`;
+    console.log(header);
+    console.log("-".repeat(header.length));
+    for (const item of items) {
+      const coloredPolicy =
+        item.policy === "allow"
+          ? `\u001b[32m${item.policy.padEnd(policyWidth)}\u001b[0m`
+          : item.policy === "block"
+            ? `\u001b[31m${item.policy.padEnd(policyWidth)}\u001b[0m`
+            : `\u001b[33m${item.policy.padEnd(policyWidth)}\u001b[0m`;
+      console.log(
+        `${coloredPolicy} | ${item.method.padEnd(methodWidth)} | ${item.source.padEnd(sourceWidth)}`,
+      );
+    }
+  });
+
+program
+  .command("proxy")
+  .description(`Run invoke proxy server on ${PROXY_HOST}:${PROXY_PORT}`)
+  .action(async () => {
+    await ensureRuntimeKeyringPassword(process.env);
+    const client = await createAuthenticatedClient(process.env);
+    const connections = await client.updateTenants(false);
+    const connectionsCount = Array.isArray(connections)
+      ? connections.length
+      : 0;
+    console.log(
+      `Proxy startup auth check successful (connections: ${connectionsCount}).`,
+    );
+    await startProxyServer(process.env);
+  });
+
 program
   .command("invoke")
   .description('Invoke xero-node API method (pass params after "--")')
@@ -382,6 +872,69 @@ program
       command: Command,
     ) => {
       const rawParams = command.args.slice(2);
+
+      const proxyUrl = process.env.XERO_PROXY_URL?.trim();
+      if (proxyUrl) {
+        if (options.tenantId?.trim()) {
+          throw new Error(
+            'Do not pass "--tenant-id" in proxy mode. Set XERO_TENANT_ID_DEFAULT on proxy server.',
+          );
+        }
+        if (process.env.XERO_TENANT_ID_DEFAULT?.trim()) {
+          console.log(
+            "Proxy mode: local XERO_TENANT_ID_DEFAULT is ignored. Tenant is resolved on proxy server.",
+          );
+        }
+        const proxyPayload = resolveProxyInvokePayload(rawParams);
+        console.error("Request sent to proxy server, waiting for response...");
+        console.error(
+          'Note: methods with policy "ask" require manual confirmation on proxy server.',
+        );
+        const response = await fetch(
+          `${proxyUrl.replace(/\/+$/, "")}/v1/invoke`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              api,
+              method,
+              rawParams: proxyPayload.rawParams,
+              uploadedFiles: proxyPayload.uploadedFiles,
+            }),
+          },
+        );
+        const raw = await response.text();
+        let parsed: unknown = null;
+        try {
+          parsed = raw ? (JSON.parse(raw) as unknown) : null;
+        } catch {
+          parsed = null;
+        }
+
+        if (!response.ok) {
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            "error" in parsed &&
+            typeof (parsed as { error?: unknown }).error === "string"
+          ) {
+            throw new Error((parsed as { error: string }).error);
+          }
+          throw new Error(raw || `Proxy request failed (${response.status}).`);
+        }
+
+        if (parsed === null && raw) {
+          console.log(raw);
+          return;
+        }
+
+        console.log(JSON.stringify(parsed, null, 2));
+        return;
+      }
+
       await ensureRuntimeKeyringPassword(process.env);
       const result = await invokeXeroMethod(
         {
@@ -389,6 +942,7 @@ program
           method,
           tenantId: options.tenantId,
           rawParams,
+          auditMode: "direct",
         },
         process.env,
       );
@@ -399,6 +953,16 @@ program
 if (process.argv.length <= 2) {
   program.outputHelp();
   process.exit(0);
+}
+
+if (process.env.XERO_PROXY_URL?.trim()) {
+  const topLevelCommand = process.argv[2];
+  if (topLevelCommand === "auth" || topLevelCommand === "tenants") {
+    console.error(
+      `Command "${topLevelCommand}" is disabled when XERO_PROXY_URL is set.`,
+    );
+    process.exit(1);
+  }
 }
 
 program.parseAsync(process.argv).catch((error: unknown) => {

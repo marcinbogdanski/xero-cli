@@ -85,8 +85,11 @@ xero auth login --mode oauth
 You can override scopes with `--scopes`:
 
 - `--scopes=core-read-only` (default):
-  - uses curated core read-only API scopes (run `xero auth scopes` for details)
+  - uses curated granular core read-only API scopes (run `xero auth scopes` for details)
   - `core-read-only` is a best-effort profile, not a strict security guarantee
+  - includes `offline_access` automatically (required to get refresh token)
+- `--scopes=reconcile`:
+  - uses core granular read scopes plus write scopes for bills/invoices, payments, bank transactions, contacts, attachments, files, and assets
   - includes `offline_access` automatically (required to get refresh token)
 - `--scopes=payroll-read-only`:
   - uses curated payroll read-only API scopes (run `xero auth scopes` for details)
@@ -102,9 +105,10 @@ Examples:
 
 ```bash
 xero auth login --mode oauth --scopes=core-read-only
+xero auth login --mode oauth --scopes=reconcile
 xero auth login --mode oauth --scopes=payroll-read-only
-xero auth login --mode oauth --scopes=core-read-only,accounting.invoices
-xero auth login --mode oauth --scopes=openid,profile,email,offline_access,accounting.transactions.read
+xero auth login --mode oauth --scopes=core-read-only,accounting.budgets.read
+xero auth login --mode oauth --scopes=openid,profile,email,offline_access,accounting.banktransactions.read
 ```
 
 This flow shows a consent URL. Open it in browser, complete consent, then the browser will try to open the callback URL and fail.  

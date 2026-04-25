@@ -155,16 +155,13 @@ export function resolveOAuthScopes(
   if (
     scopes.some(
       (scope) =>
-        scope.startsWith("accounting.invoices") ||
-        scope.startsWith("accounting.payments") ||
-        scope.startsWith("accounting.banktransactions") ||
-        scope.startsWith("accounting.manualjournals") ||
-        (scope.startsWith("accounting.reports.") &&
-          scope !== "accounting.reports.read"),
+        scope === "accounting.transactions" ||
+        scope === "accounting.transactions.read" ||
+        scope === "accounting.reports.read",
     )
   ) {
     warnings.push(
-      "Requested granular accounting scopes. If consent fails with unauthorized_client/invalid_scope, your app may still be on broad scopes.",
+      "Requested deprecated broad accounting scopes. Prefer granular accounting scopes for new or migrated Xero apps.",
     );
   }
 

@@ -235,7 +235,8 @@ Each invoke attempt is appended as JSONL.
 
 - default: `~/.config/xero-cli/audit.jsonl`
 - override: `XERO_AUDIT_LOG_PATH=/path/to/audit.jsonl`
-- full request logging: `XERO_AUDIT_LOG_FULL=1` (logs `rawParams` and `uploadedFileParams`)
+- parsed request logging: `XERO_AUDIT_LOG_REQUEST=1`
+- raw CLI/proxy param logging: `XERO_AUDIT_LOG_RAW_PARAMS=1`
 
 View recent audit events in a local dashboard:
 

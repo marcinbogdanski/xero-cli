@@ -118,6 +118,18 @@ function renderSummaryCard(label: string, value: number | string): string {
         </div>`;
 }
 
+function renderJsonBox(label: string, value: unknown): string {
+  if (value === undefined) {
+    return "";
+  }
+
+  return `
+          <div class="json-box">
+            <div class="json-label">${escapeHtml(label)}</div>
+            <pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>
+          </div>`;
+}
+
 function renderEvent(event: AuditEvent): string {
   const method = String(event.method ?? "unknownMethod");
   const api = String(event.api ?? "unknown");
@@ -129,7 +141,7 @@ function renderEvent(event: AuditEvent): string {
   const rawJson = JSON.stringify(event, null, 2);
 
   return `
-        <details class="event ${statusClass} ${kindClass}"${detailsOpen}>
+        <details class="event ${statusClass} ${kindClass}" data-event-ts="${escapeHtml(event.ts ?? "")}"${detailsOpen}>
           <summary>
             <span class="method">${escapeHtml(api)}.${escapeHtml(method)}</span>
             <span class="meta">${escapeHtml(formatTs(event.ts))}</span>
@@ -166,7 +178,12 @@ function renderEvent(event: AuditEvent): string {
               ? `<pre class="error-text">${escapeHtml(event.error)}</pre>`
               : ""
           }
-          <pre>${escapeHtml(rawJson)}</pre>
+          ${renderJsonBox("Request", event.request)}
+          ${renderJsonBox("Raw Params", event.rawParams)}
+          <details class="json-details">
+            <summary>Full audit event</summary>
+            <pre>${escapeHtml(rawJson)}</pre>
+          </details>
         </details>`;
 }
 
@@ -199,6 +216,7 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
       --amber: #9a6a16;
       --soft-red: #fff3f1;
       --soft-blue: #f0f6fc;
+      --reviewed: #f8f8f6;
     }
     * { box-sizing: border-box; }
     body {
@@ -220,6 +238,38 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
     p {
       margin: 0;
       color: var(--muted);
+    }
+    .header {
+      align-items: end;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .toolbar {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    button {
+      background: var(--ink);
+      border: 0;
+      border-radius: 8px;
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      padding: 8px 11px;
+    }
+    button:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+    .reviewed-status {
+      color: var(--muted);
+      font-size: 13px;
+      min-width: 110px;
+      text-align: right;
     }
     .summary {
       display: grid;
@@ -258,7 +308,17 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
     .event.read {
       background: var(--soft-blue);
     }
-    summary {
+    .event.reviewed {
+      background: var(--reviewed);
+      color: #5f6670;
+    }
+    .event.reviewed .method {
+      font-weight: 600;
+    }
+    .event.reviewed .pill {
+      opacity: 0.55;
+    }
+    .event > summary {
       cursor: pointer;
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
@@ -313,6 +373,33 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
     .error-text {
       color: var(--red);
     }
+    .json-box {
+      display: grid;
+      gap: 6px;
+    }
+    .json-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      margin: 0 14px;
+      text-transform: uppercase;
+    }
+    .json-details {
+      margin: 0 14px 14px;
+    }
+    .json-details > summary {
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .json-details > pre {
+      margin: 0;
+    }
     .empty {
       padding: 18px;
       color: var(--muted);
@@ -326,7 +413,17 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
       main {
         padding: 16px;
       }
-      summary {
+      .header {
+        align-items: start;
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .toolbar {
+        justify-content: flex-start;
+      }
+      .reviewed-status {
+        text-align: left;
+      }
+      .event > summary {
         grid-template-columns: minmax(0, 1fr);
       }
       .meta {
@@ -337,8 +434,16 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
 </head>
 <body>
   <main>
-    <h1>Xero Audit Dashboard</h1>
-    <p>${escapeHtml(auditPath ?? "Audit path could not be resolved.")}</p>
+    <div class="header">
+      <div>
+        <h1>Xero Audit Dashboard</h1>
+        <p>${escapeHtml(auditPath ?? "Audit path could not be resolved.")}</p>
+      </div>
+      <div class="toolbar">
+        <button id="mark-reviewed" type="button">Mark visible reviewed</button>
+        <span class="reviewed-status" id="reviewed-status"></span>
+      </div>
+    </div>
     <div class="summary">
       ${renderSummaryCard("recent events", events.length)}
       ${renderSummaryCard("reads", reads)}
@@ -355,6 +460,60 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
         : ""
     }
   </main>
+  <script>
+    (() => {
+      const storageKey = "xero-cli.auditDashboard.reviewedThrough";
+      const button = document.getElementById("mark-reviewed");
+      const status = document.getElementById("reviewed-status");
+      const events = Array.from(document.querySelectorAll(".event"));
+
+      const eventTimestamps = () =>
+        events
+          .map((event) => event.dataset.eventTs || "")
+          .filter(Boolean)
+          .sort()
+          .reverse();
+
+      const formatReviewedThrough = (value) => {
+        if (!value) {
+          return "";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return "reviewed";
+        }
+        return "reviewed " + date.toLocaleTimeString();
+      };
+
+      const applyReviewed = () => {
+        const reviewedThrough = localStorage.getItem(storageKey) || "";
+        for (const event of events) {
+          const eventTs = event.dataset.eventTs || "";
+          const isReviewed = eventTs && reviewedThrough && eventTs <= reviewedThrough;
+          event.classList.toggle("reviewed", Boolean(isReviewed));
+          if (isReviewed) {
+            event.open = false;
+          }
+        }
+        if (status) {
+          status.textContent = formatReviewedThrough(reviewedThrough);
+        }
+        if (button) {
+          button.disabled = eventTimestamps().length === 0;
+        }
+      };
+
+      button?.addEventListener("click", () => {
+        const timestamps = eventTimestamps();
+        if (timestamps[0]) {
+          localStorage.setItem(storageKey, timestamps[0]);
+        }
+        applyReviewed();
+      });
+
+      applyReviewed();
+    })();
+  </script>
 </body>
 </html>`;
 }

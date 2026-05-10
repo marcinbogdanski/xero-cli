@@ -345,16 +345,39 @@ function parseJsonModelValue(
   }
 }
 
+function resolveFileRequestValue(
+  rawValue: string,
+  uploadedFile: string | undefined,
+): Record<string, unknown> {
+  const filename = path.basename(rawValue.trim());
+  if (uploadedFile !== undefined) {
+    return {
+      uploaded: true,
+      filename: filename || undefined,
+      bytes: Buffer.byteLength(uploadedFile, "base64"),
+    };
+  }
+
+  const filePath = rawValue.trim();
+  const stats = statSync(filePath);
+  return {
+    uploaded: true,
+    filename: path.basename(filePath),
+    bytes: stats.size,
+  };
+}
+
 function buildInvokeArgs(
   manifestMethod: ManifestMethod,
   tenantId: string | undefined,
   rawParams: string[],
   uploadedFiles: Record<string, string> | undefined,
-): unknown[] {
+): { args: unknown[]; request: Record<string, unknown> } {
   const providedParams = parseRawNamedParams(rawParams);
   const signatureParams = manifestMethod.params;
   const signatureParamNames = new Set(signatureParams.map((param) => param.name));
   const args: unknown[] = new Array(signatureParams.length).fill(undefined);
+  const request: Record<string, unknown> = {};
 
   for (const name of providedParams.keys()) {
     if (name === "xeroTenantId") {
@@ -394,13 +417,21 @@ function buildInvokeArgs(
       param.name,
       uploadedFiles?.[param.name],
     );
+    if (param.declaredType === BINARY_FILE_PARAM_TYPE) {
+      request[param.name] = resolveFileRequestValue(
+        providedValue,
+        uploadedFiles?.[param.name],
+      );
+    } else {
+      request[param.name] = args[index];
+    }
   }
 
   while (args.length > 0 && args[args.length - 1] === undefined) {
     args.pop();
   }
 
-  return args;
+  return { args, request };
 }
 
 function toPrintableResult(result: unknown): InvokeResult {
@@ -429,7 +460,7 @@ function toPrintableResult(result: unknown): InvokeResult {
 function resolveInvokeCall(
   input: InvokeInput,
   env: NodeJS.ProcessEnv,
-): { mapping: ApiMapping; args: unknown[] } {
+): { mapping: ApiMapping; args: unknown[]; request: Record<string, unknown> } {
   const mapping = resolveApiMapping(input.api);
   if (!mapping) {
     throw new Error(`Unknown API "${input.api}".`);
@@ -446,13 +477,13 @@ function resolveInvokeCall(
     );
   }
 
-  const args = buildInvokeArgs(
+  const resolved = buildInvokeArgs(
     manifestMethod,
     tenantId,
     input.rawParams ?? [],
     input.uploadedFiles,
   );
-  return { mapping, args };
+  return { mapping, args: resolved.args, request: resolved.request };
 }
 
 function resolveConfigHome(env: NodeJS.ProcessEnv): string | undefined {
@@ -677,15 +708,19 @@ function appendAuditLine(
   }
 }
 
+function auditEnvFlag(value: string | undefined): boolean {
+  return ["1", "true", "yes"].includes((value ?? "").trim().toLowerCase());
+}
+
 export async function invokeXeroMethod(
   input: InvokeInput,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<InvokeResult> {
   const startedAt = Date.now();
-  const fullAudit = ["1", "true", "yes"].includes(
-    (env.XERO_AUDIT_LOG_FULL ?? "").trim().toLowerCase(),
-  );
+  const auditRawParams = auditEnvFlag(env.XERO_AUDIT_LOG_RAW_PARAMS);
+  const auditRequest = auditEnvFlag(env.XERO_AUDIT_LOG_REQUEST);
   let policyForAudit: MethodPolicy | "unknown" = "unknown";
+  let requestForAudit: Record<string, unknown> | undefined;
 
   const auditBase = {
     ts: new Date().toISOString(),
@@ -698,9 +733,9 @@ export async function invokeXeroMethod(
     uploadedFileCount: input.uploadedFiles
       ? Object.keys(input.uploadedFiles).length
       : 0,
-    request: fullAudit
+    rawParams: auditRawParams
       ? {
-          rawParams: input.rawParams ?? [],
+          cliParams: input.rawParams ?? [],
           uploadedFileParams: input.uploadedFiles
             ? Object.keys(input.uploadedFiles)
             : [],
@@ -739,6 +774,9 @@ export async function invokeXeroMethod(
     }
 
     const resolved = resolveInvokeCall(input, env);
+    if (auditRequest) {
+      requestForAudit = resolved.request;
+    }
 
     const client = await createAuthenticatedClient(env);
     const apiClient = (client as XeroClient)[resolved.mapping.property];
@@ -759,6 +797,7 @@ export async function invokeXeroMethod(
     const printable = toPrintableResult(result);
     appendAuditLine(env, {
       ...auditBase,
+      request: requestForAudit,
       policy: policyForAudit,
       status: "success",
       durationMs: Date.now() - startedAt,
@@ -769,6 +808,7 @@ export async function invokeXeroMethod(
     const message = error instanceof Error ? error.message : String(error);
     appendAuditLine(env, {
       ...auditBase,
+      request: requestForAudit,
       policy: policyForAudit,
       status: "error",
       durationMs: Date.now() - startedAt,

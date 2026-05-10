@@ -237,6 +237,20 @@ Each invoke attempt is appended as JSONL.
 - override: `XERO_AUDIT_LOG_PATH=/path/to/audit.jsonl`
 - full request logging: `XERO_AUDIT_LOG_FULL=1` (logs `rawParams` and `uploadedFileParams`)
 
+View recent audit events in a local dashboard:
+
+```bash
+xero dashboard
+```
+
+The dashboard runs on `http://127.0.0.1:8766`.
+
+To start it alongside the invoke proxy:
+
+```bash
+xero proxy --dashboard
+```
+
 ## Tenants
 
 List connected tenants from Xero `/connections`:

@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type Server } from "node:http";
 import { resolveAuthStatus } from "./auth";
 import { createAuthenticatedClient } from "./client";
 import { invokeXeroMethod, resolvePolicySummary } from "./invoke";
@@ -8,7 +8,7 @@ export const PROXY_PORT = 8765;
 
 export async function startProxyServer(
   env: NodeJS.ProcessEnv = process.env,
-): Promise<void> {
+): Promise<Server> {
   const server = createServer((request, response) => {
     void (async () => {
       const path = new URL(request.url ?? "/", "http://localhost").pathname;
@@ -177,4 +177,5 @@ export async function startProxyServer(
   });
 
   console.log(`Proxy is running on http://${PROXY_HOST}:${PROXY_PORT}`);
+  return server;
 }

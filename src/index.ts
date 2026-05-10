@@ -20,6 +20,11 @@ import {
   storeOAuthTokenSet,
 } from "./auth";
 import { createAuthenticatedClient } from "./client";
+import {
+  DASHBOARD_HOST,
+  DASHBOARD_PORT,
+  startDashboardServer,
+} from "./dashboard";
 import { invokeXeroMethod, resolvePolicySummary } from "./invoke";
 import { PROXY_HOST, PROXY_PORT, startProxyServer } from "./proxy";
 import { renderOAuthScopesHelpText, resolveOAuthScopes } from "./scopes";
@@ -843,7 +848,8 @@ policy
 program
   .command("proxy")
   .description(`Run invoke proxy server on ${PROXY_HOST}:${PROXY_PORT}`)
-  .action(async () => {
+  .option("--dashboard", `Also run audit dashboard on ${DASHBOARD_HOST}:${DASHBOARD_PORT}`)
+  .action(async (options: { dashboard?: boolean }) => {
     await ensureRuntimeKeyringPassword(process.env);
     const client = await createAuthenticatedClient(process.env);
     const connections = await client.updateTenants(false);
@@ -853,7 +859,22 @@ program
     console.log(
       `Proxy startup auth check successful (connections: ${connectionsCount}).`,
     );
-    await startProxyServer(process.env);
+    const proxyServer = await startProxyServer(process.env);
+    if (options.dashboard) {
+      try {
+        await startDashboardServer(process.env);
+      } catch (error) {
+        proxyServer.close();
+        throw error;
+      }
+    }
+  });
+
+program
+  .command("dashboard")
+  .description(`Run audit dashboard on ${DASHBOARD_HOST}:${DASHBOARD_PORT}`)
+  .action(async () => {
+    await startDashboardServer(process.env);
   });
 
 program

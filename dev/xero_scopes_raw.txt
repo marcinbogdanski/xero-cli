@@ -37,7 +37,7 @@ accounting.manualjournals	New	View and manage manual journals	ManualJournals
 accounting.manualjournals.read	New	View manual journals	As above but GET only
 accounting.reports.read	Deprecated	View your reports	AgedPayablesByContact, AgedReceivablesByContact, BalanceSheet, BankSummary, BASReport, BudgetSummary, ExecutiveSummary, GSTReport, ProfitAndLoss, TrialBalance
 accounting.reports.aged.read	New	View aged reports	AgedPayablesByContact, AgedReceivablesByContact
-accounting.reports.balancesheets.read	New	View balance sheets	BalanceSheet
+accounting.reports.balancesheet.read	New	View balance sheets	BalanceSheet
 accounting.reports.banksummary.read	New	View bank summary	BankSummary
 accounting.reports.budgetsummary.read	New	View budget summary	BudgetSummary
 accounting.reports.executivesummary.read	New	View executive summary	ExecutiveSummary

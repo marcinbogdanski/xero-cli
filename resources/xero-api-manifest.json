@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-02-21T00:29:41.382Z",
+  "generatedAt": "2026-04-25T11:11:01.535Z",
   "sdk": {
     "name": "xero-node",
-    "version": "13.4.0"
+    "version": "15.0.1"
   },
   "apis": [
     {
@@ -5818,6 +5818,13 @@
               "isRequired": false
             },
             {
+              "name": "invoiceNumbers",
+              "declaredType": "Array<string>",
+              "isOptional": true,
+              "hasDefaultValue": false,
+              "isRequired": false
+            },
+            {
               "name": "options",
               "declaredType": "{ headers: { [name: string]: string; }; }",
               "isOptional": true,
@@ -10437,121 +10444,6 @@
     {
       "name": "financeApi",
       "methods": [
-        {
-          "name": "getAccountingActivityAccountUsage",
-          "signatureFound": true,
-          "params": [
-            {
-              "name": "xeroTenantId",
-              "declaredType": "string",
-              "isOptional": false,
-              "hasDefaultValue": false,
-              "isRequired": true
-            },
-            {
-              "name": "startMonth",
-              "declaredType": "string",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            },
-            {
-              "name": "endMonth",
-              "declaredType": "string",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            },
-            {
-              "name": "options",
-              "declaredType": "{ headers: { [name: string]: string; }; }",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            }
-          ]
-        },
-        {
-          "name": "getAccountingActivityLockHistory",
-          "signatureFound": true,
-          "params": [
-            {
-              "name": "xeroTenantId",
-              "declaredType": "string",
-              "isOptional": false,
-              "hasDefaultValue": false,
-              "isRequired": true
-            },
-            {
-              "name": "endDate",
-              "declaredType": "string",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            },
-            {
-              "name": "options",
-              "declaredType": "{ headers: { [name: string]: string; }; }",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            }
-          ]
-        },
-        {
-          "name": "getAccountingActivityReportHistory",
-          "signatureFound": true,
-          "params": [
-            {
-              "name": "xeroTenantId",
-              "declaredType": "string",
-              "isOptional": false,
-              "hasDefaultValue": false,
-              "isRequired": true
-            },
-            {
-              "name": "endDate",
-              "declaredType": "string",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            },
-            {
-              "name": "options",
-              "declaredType": "{ headers: { [name: string]: string; }; }",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            }
-          ]
-        },
-        {
-          "name": "getAccountingActivityUserActivities",
-          "signatureFound": true,
-          "params": [
-            {
-              "name": "xeroTenantId",
-              "declaredType": "string",
-              "isOptional": false,
-              "hasDefaultValue": false,
-              "isRequired": true
-            },
-            {
-              "name": "dataMonth",
-              "declaredType": "string",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            },
-            {
-              "name": "options",
-              "declaredType": "{ headers: { [name: string]: string; }; }",
-              "isOptional": true,
-              "hasDefaultValue": false,
-              "isRequired": false
-            }
-          ]
-        },
         {
           "name": "getBankStatementAccounting",
           "signatureFound": true,

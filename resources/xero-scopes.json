@@ -70,7 +70,7 @@
       "description": "View aged reports"
     },
     {
-      "scope_name": "accounting.reports.balancesheets.read",
+      "scope_name": "accounting.reports.balancesheet.read",
       "description": "View balance sheets"
     },
     {
@@ -349,13 +349,36 @@
   "profiles": {
     "core-read-only": [
       "offline_access",
-      "accounting.transactions.read",
-      "accounting.reports.read",
+      "accounting.invoices.read",
+      "accounting.payments.read",
+      "accounting.banktransactions.read",
+      "accounting.manualjournals.read",
+      "accounting.reports.balancesheet.read",
+      "accounting.reports.profitandloss.read",
+      "accounting.reports.trialbalance.read",
+      "accounting.reports.banksummary.read",
       "accounting.settings.read",
       "accounting.contacts.read",
       "accounting.attachments.read",
       "files.read",
       "assets.read",
+      "projects.read"
+    ],
+    "reconcile": [
+      "offline_access",
+      "accounting.invoices",
+      "accounting.payments",
+      "accounting.banktransactions",
+      "accounting.manualjournals.read",
+      "accounting.reports.balancesheet.read",
+      "accounting.reports.profitandloss.read",
+      "accounting.reports.trialbalance.read",
+      "accounting.reports.banksummary.read",
+      "accounting.settings.read",
+      "accounting.contacts",
+      "accounting.attachments",
+      "files",
+      "assets",
       "projects.read"
     ],
     "payroll-read-only": [

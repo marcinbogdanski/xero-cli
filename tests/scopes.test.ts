@@ -17,6 +17,7 @@ describe("renderOAuthScopesHelpText", () => {
       "  accounting.transactions.read - View your business transactions",
     );
     expect(text).toContain("Profile core-read-only:");
+    expect(text).toContain("Profile reconcile:");
     expect(text).toContain("Profile payroll-read-only:");
     expect(text.endsWith("\n")).toBe(true);
   });
@@ -34,19 +35,32 @@ describe("resolveOAuthScopes", () => {
     const result = resolveOAuthScopes(undefined);
 
     expect(result.scopes).toContain("offline_access");
-    expect(result.scopes).toContain("accounting.transactions.read");
+    expect(result.scopes).toContain("accounting.banktransactions.read");
+    expect(result.scopes).toContain("accounting.reports.balancesheet.read");
     expect(result.warnings).toEqual([]);
   });
 
   it("expands profile tokens and explicit scopes with dedupe", () => {
     const result = resolveOAuthScopes(
-      "core-read-only,accounting.invoices,accounting.transactions.read",
+      "core-read-only,accounting.invoices,accounting.banktransactions.read",
     );
 
     expect(result.scopes).toContain("accounting.invoices");
     expect(
-      result.scopes.filter((scope) => scope === "accounting.transactions.read"),
+      result.scopes.filter((scope) => scope === "accounting.banktransactions.read"),
     ).toHaveLength(1);
+  });
+
+  it("expands reconciliation profile", () => {
+    const result = resolveOAuthScopes("reconcile");
+
+    expect(result.scopes).toContain("accounting.invoices");
+    expect(result.scopes).toContain("accounting.banktransactions");
+    expect(result.scopes).toContain("accounting.contacts");
+    expect(result.scopes).toContain("accounting.attachments");
+    expect(result.scopes).toContain("files");
+    expect(result.scopes).toContain("assets");
+    expect(result.warnings).toEqual([]);
   });
 
   it("warns and passes through unknown scopes", () => {
@@ -72,12 +86,12 @@ describe("resolveOAuthScopes", () => {
     );
   });
 
-  it("warns when granular accounting scopes are requested", () => {
-    const result = resolveOAuthScopes("offline_access,accounting.invoices.read");
+  it("warns when deprecated broad accounting scopes are requested", () => {
+    const result = resolveOAuthScopes("offline_access,accounting.transactions.read");
 
     expect(
       result.warnings.some((warning) =>
-        warning.includes("Requested granular accounting scopes"),
+        warning.includes("Requested deprecated broad accounting scopes"),
       ),
     ).toBe(true);
   });

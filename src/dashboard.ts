@@ -130,6 +130,19 @@ function renderJsonBox(label: string, value: unknown): string {
           </div>`;
 }
 
+function resolveEventKey(event: AuditEvent): string {
+  return [
+    event.ts ?? "",
+    event.mode ?? "",
+    event.api ?? "",
+    event.method ?? "",
+    event.status ?? "",
+    event.durationMs ?? "",
+    event.responseStatus ?? "",
+    event.error ?? "",
+  ].map((value) => String(value)).join("|");
+}
+
 function renderEvent(event: AuditEvent): string {
   const method = String(event.method ?? "unknownMethod");
   const api = String(event.api ?? "unknown");
@@ -138,14 +151,16 @@ function renderEvent(event: AuditEvent): string {
   const detailsOpen = isRead ? "" : " open";
   const statusClass = status === "success" ? "success" : "error";
   const kindClass = isRead ? "read" : "write";
+  const eventKey = resolveEventKey(event);
   const rawJson = JSON.stringify(event, null, 2);
 
   return `
-        <details class="event ${statusClass} ${kindClass}" data-event-ts="${escapeHtml(event.ts ?? "")}"${detailsOpen}>
+        <details class="event ${statusClass} ${kindClass}" data-event-key="${escapeHtml(eventKey)}" data-event-ts="${escapeHtml(event.ts ?? "")}"${detailsOpen}>
           <summary>
             <span class="method">${escapeHtml(api)}.${escapeHtml(method)}</span>
             <span class="meta">${escapeHtml(formatTs(event.ts))}</span>
             <span class="pill ${statusClass}">${escapeHtml(status)}</span>
+            <button class="review-button" type="button">Review</button>
           </summary>
           <div class="grid">
             <div>
@@ -321,7 +336,7 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
     .event > summary {
       cursor: pointer;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       align-items: center;
       gap: 10px;
       padding: 13px 14px;
@@ -348,6 +363,20 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
     }
     .pill.error {
       background: var(--red);
+    }
+    .review-button {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      padding: 4px 8px;
+    }
+    .review-button:hover {
+      border-color: var(--muted);
+      color: var(--ink);
+    }
+    .event.reviewed .review-button {
+      display: none;
     }
     .grid {
       display: grid;
@@ -462,10 +491,24 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
   </main>
   <script>
     (() => {
-      const storageKey = "xero-cli.auditDashboard.reviewedThrough";
+      const reviewedThroughKey = "xero-cli.auditDashboard.reviewedThrough";
+      const reviewedItemsKey = "xero-cli.auditDashboard.reviewedItems";
       const button = document.getElementById("mark-reviewed");
       const status = document.getElementById("reviewed-status");
       const events = Array.from(document.querySelectorAll(".event"));
+
+      const readReviewedItems = () => {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(reviewedItemsKey) || "[]");
+          return Array.isArray(parsed) ? new Set(parsed.filter((item) => typeof item === "string")) : new Set();
+        } catch {
+          return new Set();
+        }
+      };
+
+      const writeReviewedItems = (items) => {
+        localStorage.setItem(reviewedItemsKey, JSON.stringify(Array.from(items).slice(-500)));
+      };
 
       const eventTimestamps = () =>
         events
@@ -486,10 +529,14 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
       };
 
       const applyReviewed = () => {
-        const reviewedThrough = localStorage.getItem(storageKey) || "";
+        const reviewedThrough = localStorage.getItem(reviewedThroughKey) || "";
+        const reviewedItems = readReviewedItems();
         for (const event of events) {
           const eventTs = event.dataset.eventTs || "";
-          const isReviewed = eventTs && reviewedThrough && eventTs <= reviewedThrough;
+          const eventKey = event.dataset.eventKey || "";
+          const isReviewed =
+            Boolean(eventKey && reviewedItems.has(eventKey)) ||
+            Boolean(eventTs && reviewedThrough && eventTs <= reviewedThrough);
           event.classList.toggle("reviewed", Boolean(isReviewed));
           if (isReviewed) {
             event.open = false;
@@ -506,10 +553,25 @@ function renderDashboard(env: NodeJS.ProcessEnv): string {
       button?.addEventListener("click", () => {
         const timestamps = eventTimestamps();
         if (timestamps[0]) {
-          localStorage.setItem(storageKey, timestamps[0]);
+          localStorage.setItem(reviewedThroughKey, timestamps[0]);
         }
         applyReviewed();
       });
+
+      for (const event of events) {
+        event.querySelector(".review-button")?.addEventListener("click", (clickEvent) => {
+          clickEvent.preventDefault();
+          clickEvent.stopPropagation();
+          const eventKey = event.dataset.eventKey || "";
+          if (!eventKey) {
+            return;
+          }
+          const reviewedItems = readReviewedItems();
+          reviewedItems.add(eventKey);
+          writeReviewedItems(reviewedItems);
+          applyReviewed();
+        });
+      }
 
       applyReviewed();
     })();
